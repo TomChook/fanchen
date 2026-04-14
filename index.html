@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>凡尘立道录</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="backdrop"></div>
+  <div class="app-shell">
+    <header class="card hero">
+      <div class="hero-copy">
+        <p class="eyebrow">离线原生修真经营</p>
+        <h1>凡尘立道录</h1>
+        <p class="subtitle">从寒门凡人起步，在乡社、工盟、商帮与山门之间挣门路、攒产业、熬境界，决定自己是继续寄身门墙，还是另立一脉。</p>
+      </div>
+      <div class="hero-status">
+        <div class="status-pill">
+          <span>第</span>
+          <strong id="dayLabel">1</strong>
+          <span>日</span>
+        </div>
+        <div class="status-pill">
+          <span id="timeLabel">子时</span>
+        </div>
+        <div class="status-pill">
+          <span>声望</span>
+          <strong id="reputationLabel">0</strong>
+        </div>
+        <div class="status-pill accent">
+          <span id="saveStateLabel">未存档</span>
+        </div>
+      </div>
+      <div class="hero-actions">
+        <button class="control-button primary" id="saveButton">手动存档</button>
+        <button class="control-button" id="loadButton">读取存档</button>
+        <button class="control-button" id="newGameButton">重开此世</button>
+        <div class="speed-switch" id="speedSwitch">
+          <button class="speed-button" data-speed="0.5">0.5x</button>
+          <button class="speed-button active" data-speed="1">1x</button>
+          <button class="speed-button" data-speed="2">2x</button>
+          <button class="speed-button" data-speed="4">4x</button>
+        </div>
+      </div>
+    </header>
+
+    <main class="desktop-layout">
+      <aside class="sidebar-stack">
+        <section class="card panel-card" id="playerPanel"></section>
+        <section class="card panel-card dock-card" id="dockPanel"></section>
+      </aside>
+
+      <section class="card workbench">
+        <div class="workbench-head">
+          <div>
+            <p class="section-kicker">行程总览</p>
+            <h2>凡尘谋局台</h2>
+            <p class="workbench-subtitle">先看行囊、营生与门路，再决定是远游九州、闯秘境，还是记下今日风闻。</p>
+          </div>
+          <div class="workbench-tools">
+            <div class="tool-row">
+              <button class="control-button ghost" id="openMapButton" data-open-window="map">打开山河图</button>
+              <button class="control-button ghost" id="openJournalButton" data-open-window="journal">打开纪事</button>
+              <button class="control-button ghost" id="openProfileButton" data-open-window="profile">打开人物簿</button>
+              <button class="control-button ghost" id="focusPlayerButton">定位主角</button>
+            </div>
+          </div>
+        </div>
+        <section class="workbench-command-panel" id="commandPanel"></section>
+        <nav class="tab-strip" id="tabStrip">
+          <button class="tab-button active" data-tab="inventory">行囊与功法</button>
+          <button class="tab-button" data-tab="industry">产业经营</button>
+          <button class="tab-button" data-tab="market">商店与行商</button>
+          <button class="tab-button" data-tab="auction">拍卖行</button>
+          <button class="tab-button" data-tab="combat">战斗与秘境</button>
+          <button class="tab-button" data-tab="npcs">江湖群像</button>
+          <button class="tab-button" data-tab="sect">势力与山门</button>
+          <button class="tab-button" data-tab="world">天机簿</button>
+        </nav>
+
+        <section class="tab-panels">
+          <article class="tab-panel active" id="tab-inventory">
+        <div id="inventoryPanel"></div>
+      </article>
+          <article class="tab-panel" id="tab-industry">
+        <div id="industryPanel"></div>
+      </article>
+          <article class="tab-panel" id="tab-market">
+        <div id="marketPanel"></div>
+      </article>
+          <article class="tab-panel" id="tab-auction">
+        <div id="auctionPanel"></div>
+      </article>
+          <article class="tab-panel" id="tab-combat">
+        <div id="combatPanel"></div>
+      </article>
+          <article class="tab-panel" id="tab-npcs">
+        <div id="npcPanel"></div>
+      </article>
+          <article class="tab-panel" id="tab-sect">
+        <div id="sectPanel"></div>
+      </article>
+          <article class="tab-panel" id="tab-world">
+        <div id="worldPanel"></div>
+      </article>
+        </section>
+      </section>
+    </main>
+
+    <aside class="floating-window map-window" id="mapWindow" data-window="map" hidden>
+      <div class="window-header" data-window-handle="map">
+        <div>
+          <p class="section-kicker">山河图</p>
+          <h2>九州总图</h2>
+        </div>
+        <div class="window-actions">
+          <button class="control-button ghost" data-window-action="minimize" data-window-id="map">最小化</button>
+          <button class="control-button ghost" data-window-action="dock" data-window-id="map">停靠</button>
+          <button class="control-button" id="closeMapButton" data-close-window="map">收起</button>
+        </div>
+      </div>
+      <div class="window-body map-window-body">
+        <section class="map-stage">
+          <div class="window-toolbar">
+            <div>
+              <p class="section-kicker">远观九州</p>
+              <h3>点击节点查看详情，再决定是否前往</h3>
+            </div>
+          </div>
+          <div class="canvas-shell">
+            <canvas id="worldMap" width="1440" height="720"></canvas>
+            <div class="canvas-overlay">
+              <div class="overlay-stat">
+                <span>当前地点</span>
+                <strong id="currentLocationLabel">青禾镇</strong>
+              </div>
+              <div class="overlay-stat">
+                <span>挂机模式</span>
+                <strong id="modeLabel">维生求进</strong>
+              </div>
+              <div class="overlay-stat wide">
+                <span>当前行动</span>
+                <strong id="actionLabel">正在打熬筋骨</strong>
+              </div>
+            </div>
+          </div>
+        </section>
+        <section class="location-panel">
+          <div class="window-toolbar location-toolbar">
+            <div>
+              <p class="section-kicker">行迹与门路</p>
+              <h3>地脉详情</h3>
+            </div>
+          </div>
+          <div class="location-detail" id="locationDetail"></div>
+        </section>
+      </div>
+    </aside>
+
+    <aside class="floating-window journal-window" id="journalWindow" data-window="journal" hidden>
+      <div class="window-header" data-window-handle="journal">
+        <div>
+          <p class="section-kicker">风闻</p>
+          <h2>江湖纪事</h2>
+        </div>
+        <div class="window-actions">
+          <button class="control-button ghost" id="clearLogButton">清空</button>
+          <button class="control-button ghost" data-window-action="minimize" data-window-id="journal">最小化</button>
+          <button class="control-button ghost" data-window-action="dock" data-window-id="journal">停靠</button>
+          <button class="control-button" id="closeJournalButton" data-close-window="journal">收起</button>
+        </div>
+      </div>
+      <div class="window-body">
+        <div class="log-list" id="logList"></div>
+      </div>
+    </aside>
+
+    <aside class="floating-window profile-window" id="profileWindow" data-window="profile" hidden>
+      <div class="window-header" data-window-handle="profile">
+        <div>
+          <p class="section-kicker">人物簿</p>
+          <h2>生平与记录</h2>
+        </div>
+        <div class="window-actions">
+          <button class="control-button ghost" data-window-action="minimize" data-window-id="profile">最小化</button>
+          <button class="control-button ghost" data-window-action="dock" data-window-id="profile">停靠</button>
+          <button class="control-button" id="closeProfileButton" data-close-window="profile">收起</button>
+        </div>
+      </div>
+      <div class="window-body">
+        <div class="profile-detail" id="profileDetail"></div>
+      </div>
+    </aside>
+  </div>
+
+  <script src="scripts/app/namespace.js" defer></script>
+  <script src="scripts/app/utils.js" defer></script>
+  <script src="scripts/config/constants.js" defer></script>
+  <script src="scripts/config/world.js" defer></script>
+  <script src="scripts/config/items.js" defer></script>
+  <script src="scripts/config/npcs.js" defer></script>
+  <script src="scripts/config/economy.js" defer></script>
+  <script src="scripts/config/combat.js" defer></script>
+  <script src="scripts/config/events.js" defer></script>
+  <script src="scripts/systems/state.js" defer></script>
+  <script src="scripts/systems/player.js" defer></script>
+  <script src="scripts/systems/combat.js" defer></script>
+  <script src="scripts/systems/social.js" defer></script>
+  <script src="scripts/systems/world.js" defer></script>
+  <script src="scripts/systems/industry.js" defer></script>
+  <script src="scripts/ui/shared.js" defer></script>
+  <script src="scripts/ui/windows.js" defer></script>
+  <script src="scripts/ui/interactions.js" defer></script>
+  <script src="scripts/ui/panels.js" defer></script>
+  <script src="scripts/ui/map.js" defer></script>
+  <script src="scripts/ui/main.js" defer></script>
+  <script src="game.js" defer></script>
+</body>
+</html>

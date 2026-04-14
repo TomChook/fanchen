@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "odai": {
+      "source": "orziz/AISKills",
+      "ref": "odai",
+      "sourceType": "github",
+      "computedHash": "7540a006ff741533fb6fe5e4ff4c03e33f97dc3ef102e2db1536e5cd2186ed3e"
+    }
+  }
+}

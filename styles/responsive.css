@@ -1,0 +1,62 @@
+﻿@media (max-width: 1380px) {
+  .hero {
+    grid-template-columns: 1fr auto;
+  }
+
+  .hero-copy {
+    grid-column: 1 / -1;
+  }
+
+  .workbench-head {
+    flex-direction: column;
+  }
+
+  .workbench-tools {
+    width: 100%;
+    min-width: 0;
+    justify-items: stretch;
+  }
+
+  .status-console,
+  .tool-row {
+    width: 100%;
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 1120px) {
+  .desktop-layout {
+    grid-template-columns: 300px 1fr;
+  }
+
+  .status-console,
+  .command-layout,
+  .badge-row,
+  .mode-grid,
+  .quick-actions,
+  .stat-grid,
+  .summary-grid,
+  .compact-grid,
+  .two-column,
+  .combat-grid,
+  .quick-link-grid,
+  .canvas-overlay,
+  .map-window-body {
+    grid-template-columns: 1fr;
+  }
+
+  .map-window {
+    width: 94vw;
+    height: 88vh;
+  }
+
+  .journal-window {
+    width: min(90vw, 620px);
+    height: 82vh;
+  }
+
+  .profile-window {
+    width: min(92vw, 660px);
+    height: 84vh;
+  }
+}
