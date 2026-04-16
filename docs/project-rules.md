@@ -1,6 +1,6 @@
 # 凡尘立道录 · 项目维护规则
 
-> 本文档约束所有代码变更，AI 或人工均须遵守。与 `copilot-instructions.md` 并行生效，前者偏游戏内容与文案，本文偏工程与架构。
+> 本文档约束所有代码变更，AI 或人工均须遵守。与 `.github/copilot-instructions.md` 并行生效；后者偏项目定位、游戏内容与 AI 基线，本文偏工程与架构。
 
 ---
 
@@ -19,7 +19,7 @@
 
 ### 1.2 文件拆分
 
-- 单文件不超过 **500 行**（硬规则，见 `copilot-instructions.md`）。
+- 单文件不超过 **500 行**（硬规则，见 `.github/copilot-instructions.md`）。
 - 拆分优先按「一个系统 / 一个面板 / 一个配置主题」，不做横切的 utils 大文件。
 - 新增系统前先在 `docs/` 放一份简要设计，说明：输入、输出、日结/回合钩子、与已有系统的交互点。
 
@@ -102,14 +102,14 @@
 
 ### 4.2 向后兼容
 
-- 任何 store 字段变更（改名 / 删除 / 类型变化）必须附带**迁移函数**，在 `state-hydration.ts` 中处理旧存档 → 新字段的映射。
+- 任何 store 字段变更（改名 / 删除 / 类型变化）必须附带**迁移函数**，在 `src/stores/game/hydration.ts` 中处理旧存档 → 新字段的映射。
 - 新增字段必须有合理默认值，旧存档加载后自动补全。
 - 不允许静默丢弃旧存档数据；若确认某字段永久废弃，需在迁移注释中说明。
 
 ### 4.3 版本号
 
-- 存档带 `saveVersion: number`。
-- 每次结构性变更递增版本号，迁移函数逐版本链式升级。
+- 当前存档没有显式 `saveVersion` 字段；兼容主要依赖 `src/stores/game/hydration.ts` 和 legacy key 迁移。
+- 若后续决定引入显式版本号，必须同步更新迁移逻辑、默认值和本文档，不得只改一半。
 
 ---
 
@@ -134,7 +134,9 @@
 - `npm run dev`：Vite 开发服务器。
 - `npm run build`：产物输出到 `dist/`。
 - **硬约束**：`dist/index.html` 必须能双击直接打开游玩，不依赖本地 server。
-- TypeScript 严格模式，`vue-tsc --noEmit` 通过后才可提交。
+- 当前仓库以 `tsc --noEmit` 做类型检查，提交前至少通过 `npm run typecheck`。
+- 当前 `tsconfig.json` 的 `strict` 为 `false`；除非任务明确要求，不要顺手把整仓提到严格模式。
+- 在 Windows PowerShell 下如果 `npm run ...` 被执行策略拦截，改用 `npm.cmd run typecheck`、`npm.cmd run build`。
 
 ---
 
@@ -142,7 +144,7 @@
 
 每次代码变更后，请按以下顺序验证：
 
-1. `npx vite build` 通过（0 error）。
+1. `npm run typecheck` 通过，随后 `npm run build` 通过；若在 Windows PowerShell 下被拦截，改用 `npm.cmd run typecheck` 与 `npm.cmd run build`。
 2. 所有面板切换后只显示当前面板内容，无串显/残影。
 3. Pin-rail 单卡展开撑满高度，三卡等分。
 4. 地图 overlay 信息不遮盖 canvas。
