@@ -1,0 +1,358 @@
+import { defineStore } from 'pinia'
+import { ref, computed } from 'vue'
+import type { GameState, LearnedTechniqueState, RelationState } from '@/types/game'
+import { FACTIONS, FACTION_MAP, LEGACY_SAVE_KEYS, LOCATION_MAP, RANKS, SAVE_KEY, TIME_LABELS, getItem, getTechnique, getTechniqueResolvedEffectValue } from '@/config'
+import { clamp, round, buildMapTexture, findRoute } from '@/utils'
+import type { MapTexture } from '@/utils'
+import { bus } from '@/core/events'
+import { setContext, type GameContext } from '@/core/context'
+import {
+  createAuctionListings,
+  createGameState,
+  createInitialPlayerFaction,
+  createInitialSect,
+  createInitialTerritories,
+  createLootBundle,
+  createMarketListings,
+  createNPC,
+  createRelationState,
+  deriveLifeStage,
+} from './factories'
+import { hydrateGameState, readStoredSave } from './hydration'
+
+function resolveTechniqueEffect(
+  technique: NonNullable<ReturnType<typeof getTechnique>> | null,
+  state: Pick<LearnedTechniqueState, 'mastery'> | null | undefined,
+  key: string,
+) {
+  return getTechniqueResolvedEffectValue(technique || undefined, state, key)
+}
+
+export const useGameStore = defineStore('game', () => {
+  const game = ref<GameState>(createGameState())
+  const selectedLocationId = ref('qinghe')
+  const speed = ref(1)
+  const saveState = ref('未存档')
+  const mapTexture = ref<MapTexture>(buildMapTexture())
+  const feedback = ref<{ text: string; type: string } | null>(null)
+  const initialized = ref(false)
+
+  const player = computed(() => game.value.player)
+  const npcs = computed(() => game.value.npcs)
+  const combat = computed(() => game.value.combat)
+  const world = computed(() => game.value.world)
+  const market = computed(() => game.value.market)
+  const auction = computed(() => game.value.auction)
+  const log = computed(() => game.value.log)
+  const story = computed(() => game.value.story)
+
+  const currentLocation = computed(() => LOCATION_MAP.get(player.value.locationId)!)
+  const selectedLocation = computed(() => LOCATION_MAP.get(selectedLocationId.value) || currentLocation.value)
+  const rankData = computed(() => RANKS[Math.min(player.value.rankIndex, RANKS.length - 1)])
+  const nextBreakthroughNeed = computed(() => {
+    const next = RANKS[Math.min(player.value.rankIndex + 1, RANKS.length - 1)]
+    return next ? next.need : 999999
+  })
+  const playerPower = computed(() => player.value.power + (player.value.bonusPower || 0))
+  const playerInsight = computed(() => player.value.insight + (player.value.bonusInsight || 0))
+  const playerCharisma = computed(() => player.value.charisma + (player.value.bonusCharisma || 0))
+  const currentAffiliation = computed(() => player.value.affiliationId ? FACTION_MAP.get(player.value.affiliationId) || null : null)
+  const playerFaction = computed(() => player.value.playerFaction)
+  const sect = computed(() => player.value.sect)
+
+  function getCurrentLocation() { return currentLocation.value }
+  function getSelectedLocation() { return selectedLocation.value }
+  function getRankData(index?: number) {
+    const i = index ?? player.value.rankIndex
+    return RANKS[Math.min(i, RANKS.length - 1)]
+  }
+  function getNextBreakthroughNeed() { return nextBreakthroughNeed.value }
+  function getPlayerPower() { return playerPower.value }
+  function getPlayerInsight() { return playerInsight.value }
+  function getPlayerCharisma() { return playerCharisma.value }
+  function getCurrentAffiliation() { return currentAffiliation.value }
+  function getPlayerFaction() { return playerFaction.value }
+  function getSect() { return sect.value }
+
+  function getNpc(npcId: string) {
+    return game.value.npcs.find(n => n.id === npcId) || null
+  }
+
+  function findInventoryEntry(itemId: string) {
+    return game.value.player.inventory.find(e => e.itemId === itemId) || null
+  }
+
+  function ensurePlayerRelation(npcId: string): RelationState {
+    game.value.player.relations[npcId] = game.value.player.relations[npcId] || createRelationState()
+    return game.value.player.relations[npcId]
+  }
+
+  function addItemToInventory(itemId: string, quantity = 1) {
+    const entry = findInventoryEntry(itemId)
+    if (entry) entry.quantity += quantity
+    else game.value.player.inventory.push({ itemId, quantity })
+    bus.emit('state:inventory-changed', { itemId, quantity })
+  }
+
+  function removeItemFromInventory(itemId: string, quantity = 1): boolean {
+    const entry = findInventoryEntry(itemId)
+    if (!entry || entry.quantity < quantity) return false
+    entry.quantity -= quantity
+    if (entry.quantity <= 0) {
+      game.value.player.inventory = game.value.player.inventory.filter(e => e !== entry)
+    }
+    bus.emit('state:inventory-changed', { itemId, quantity: -quantity })
+    return true
+  }
+
+  function adjustResource(key: string, amount: number, maxKey?: string) {
+    const p = game.value.player as Record<string, unknown>
+    const current = p[key]
+    if (typeof current !== 'number') return
+    const max = maxKey && typeof p[maxKey] === 'number' ? p[maxKey] as number : Infinity
+    ;(p[key] as number) = clamp(current + amount, 0, max)
+    bus.emit('state:resource-changed', { key, amount, value: p[key] })
+  }
+
+  function appendLog(text: string, type = 'info') {
+    const w = game.value.world
+    const stamp = `第${w.day}日 ${TIME_LABELS[w.hour]}`
+    game.value.log.unshift({ stamp, text, type })
+    if (game.value.log.length > 80) game.value.log.length = 80
+    if (['warn', 'loot', 'action'].includes(type)) {
+      feedback.value = { text, type }
+      setTimeout(() => { feedback.value = null }, 3000)
+    }
+    bus.emit('state:log-added', { text, type })
+  }
+
+  function getRegionStanding(locationId = player.value.locationId) {
+    return game.value.player.regionStanding[locationId] || 0
+  }
+
+  function adjustRegionStanding(locationId = player.value.locationId, amount = 0) {
+    if (!locationId || !amount) return
+    game.value.player.regionStanding[locationId] = round((game.value.player.regionStanding[locationId] || 0) + amount, 1)
+    bus.emit('state:region-standing-changed', { locationId, amount })
+  }
+
+  function adjustFactionStanding(factionId: string | null, amount: number) {
+    if (!factionId) return 0
+    const p = game.value.player
+    const w = game.value.world
+    p.factionStanding[factionId] = round((p.factionStanding[factionId] || 0) + amount, 1)
+    if (w.factions[factionId]) {
+      w.factions[factionId].standing = p.factionStanding[factionId]
+      w.factions[factionId].favor += amount * 0.25
+    }
+    const faction = FACTION_MAP.get(factionId)
+    if (faction) {
+      const officialTypes = new Set(['court', 'bureau', 'garrison'])
+      if (officialTypes.has(faction.type)) w.factionFavor.court += amount * 0.2
+      else if (['guild', 'escort', 'village', 'society'].includes(faction.type)) w.factionFavor.merchants += amount * 0.18
+      else if (faction.type === 'order') w.factionFavor.sect += amount * 0.12
+    }
+    const affFaction = currentAffiliation.value
+    if (affFaction) {
+      const standing = p.factionStanding[affFaction.id] || 0
+      const nextRank = standing >= 80 ? 3 : standing >= 45 ? 2 : standing >= 18 ? 1 : 0
+      if (nextRank > p.affiliationRank) {
+        p.affiliationRank = nextRank
+        p.title = `${affFaction.name}${affFaction.titles[nextRank]}`
+        appendLog(`你在${affFaction.name}中的身份升为"${affFaction.titles[nextRank]}"。`, 'loot')
+      }
+    }
+    bus.emit('state:faction-standing-changed', { factionId, amount })
+    return p.factionStanding[factionId]
+  }
+
+  function adjustRelation(npcId: string, delta: Partial<RelationState> = {}) {
+    const relation = ensurePlayerRelation(npcId)
+    relation.affinity = clamp(relation.affinity + (delta.affinity || 0), -100, 100)
+    relation.trust = clamp(relation.trust + (delta.trust || 0), -100, 100)
+    relation.romance = clamp(relation.romance + (delta.romance || 0), -100, 100)
+    relation.rivalry = clamp(relation.rivalry + (delta.rivalry || 0), 0, 100)
+    if (delta.role) relation.role = delta.role
+    const npc = getNpc(npcId)
+    if (npc) npc.relation = { ...relation }
+    bus.emit('state:relation-changed', { npcId, relation })
+    return relation
+  }
+
+  function clearLog() {
+    game.value.log = []
+    bus.emit('state:log-cleared')
+  }
+
+  function toggleAutoBattle() {
+    game.value.combat.autoBattle = !game.value.combat.autoBattle
+    bus.emit('state:combat-auto-toggled', game.value.combat.autoBattle)
+  }
+
+  function updateDerivedStats() {
+    const p = game.value.player
+    const rank = RANKS[Math.min(p.rankIndex, RANKS.length - 1)]
+    let maxQi = rank.qiMax
+    let maxHp = rank.hpMax
+    let maxStamina = rank.staminaMax
+    let cultivationBonus = 0
+    let breakthroughRate = 0.5
+    let powerBonus = 0
+    let insightBonus = 0
+    let charismaBonus = 0
+    ;(['weapon', 'armor'] as const).forEach((slot) => {
+      const itemId = p.equipment[slot]
+      if (!itemId) return
+      const item = getItem(itemId)
+      if (!item) return
+      if (item.effect.hp) maxHp += item.effect.hp
+      if (item.effect.qi) maxQi += item.effect.qi
+      if (item.effect.stamina) maxStamina += item.effect.stamina
+      if (item.effect.cultivation) cultivationBonus += item.effect.cultivation
+      if (item.effect.breakthroughRate) breakthroughRate += item.effect.breakthroughRate
+      if (item.effect.power) powerBonus += item.effect.power
+      if (item.effect.insight) insightBonus += item.effect.insight
+      if (item.effect.charisma) charismaBonus += item.effect.charisma
+    })
+    const heartId = p.equipment.heart
+    const heartTechnique = heartId ? getTechnique(heartId) : null
+    const heartState = heartId ? p.learnedTechniques[heartId] : null
+    if (heartTechnique && heartState) {
+      maxHp += resolveTechniqueEffect(heartTechnique, heartState, 'hp')
+      maxQi += resolveTechniqueEffect(heartTechnique, heartState, 'qi')
+      maxStamina += resolveTechniqueEffect(heartTechnique, heartState, 'stamina')
+      cultivationBonus += resolveTechniqueEffect(heartTechnique, heartState, 'cultivation')
+      breakthroughRate += resolveTechniqueEffect(heartTechnique, heartState, 'breakthroughRate')
+      powerBonus += resolveTechniqueEffect(heartTechnique, heartState, 'power')
+      insightBonus += resolveTechniqueEffect(heartTechnique, heartState, 'insight')
+      charismaBonus += resolveTechniqueEffect(heartTechnique, heartState, 'charisma')
+    }
+    if (p.masterId) { cultivationBonus += 0.02; breakthroughRate += 0.015 }
+    if (p.partnerId) { charismaBonus += 1; cultivationBonus += 0.01 }
+    if (p.sect) {
+      cultivationBonus += p.sect.buildings.library * 0.01
+      powerBonus += p.sect.buildings.dojo * 0.28
+      charismaBonus += Math.max(0, p.sect.level - 1)
+    }
+    p.maxQi = maxQi
+    p.maxHp = maxHp
+    p.maxStamina = maxStamina
+    p.bonusPower = powerBonus
+    p.bonusInsight = insightBonus
+    p.bonusCharisma = charismaBonus
+    p.cultivationBonus = cultivationBonus
+    p.breakthroughRate = breakthroughRate
+    p.qi = clamp(p.qi, 0, maxQi)
+    p.hp = clamp(p.hp, 0, maxHp)
+    p.stamina = clamp(p.stamina, 0, maxStamina)
+    bus.emit('state:derived-stats-updated')
+  }
+
+  function saveGame(manual = true) {
+    try {
+      game.value.lastSavedAt = Date.now()
+      localStorage.setItem(SAVE_KEY, JSON.stringify(game.value))
+      LEGACY_SAVE_KEYS.forEach(key => localStorage.removeItem(key))
+      saveState.value = `${manual ? '已手动存档' : '自动存档'} ${new Date(game.value.lastSavedAt).toLocaleTimeString('zh-CN', { hour12: false })}`
+      bus.emit('game:saved', { manual })
+    } catch {
+      saveState.value = '存档失败'
+      appendLog('浏览器拒绝写入本地存档。', 'warn')
+    }
+  }
+
+  function loadGame() {
+    try {
+      const stored = readStoredSave()
+      if (!stored?.raw) { appendLog('当前浏览器里没有可读取的存档。', 'warn'); return }
+      game.value = hydrateGameState(JSON.parse(stored.raw))
+      localStorage.setItem(SAVE_KEY, JSON.stringify(game.value))
+      LEGACY_SAVE_KEYS.forEach(key => localStorage.removeItem(key))
+      updateDerivedStats()
+      selectedLocationId.value = game.value.player.locationId
+      saveState.value = `已读取 ${new Date(game.value.lastSavedAt || Date.now()).toLocaleTimeString('zh-CN', { hour12: false })}`
+      appendLog('旧日行程已经续上。', 'info')
+      bus.emit('game:loaded')
+    } catch {
+      appendLog('存档损坏或格式不兼容，读取失败。', 'warn')
+    }
+  }
+
+  function resetGame() {
+    game.value = createGameState()
+    selectedLocationId.value = game.value.player.locationId
+    saveState.value = '新轮回已开启'
+    updateDerivedStats()
+    appendLog('新的一世开始了，你从云泽渡醒来。', 'info')
+    bus.emit('game:reset')
+  }
+
+  function initializeGame() {
+    if (initialized.value) return
+    const stored = readStoredSave()
+    if (stored?.raw) {
+      try {
+        game.value = hydrateGameState(JSON.parse(stored.raw))
+        localStorage.setItem(SAVE_KEY, JSON.stringify(game.value))
+        LEGACY_SAVE_KEYS.forEach(key => localStorage.removeItem(key))
+        saveState.value = '已载入本地存档'
+      } catch {
+        game.value = createGameState()
+        saveState.value = '旧存档损坏，已重置'
+      }
+    } else {
+      game.value = createGameState()
+      saveState.value = '未存档'
+    }
+    updateDerivedStats()
+    selectedLocationId.value = game.value.player.locationId
+    mapTexture.value = buildMapTexture()
+    appendLog('凡尘立道录已开启，你的寒门修途开始运转。', 'info')
+    initialized.value = true
+    bus.emit('game:initialized')
+  }
+
+  const contextAdapter: GameContext = {
+    get game() { return game.value },
+    bus,
+    get selectedLocationId() { return selectedLocationId.value },
+    set selectedLocationId(v: string) { selectedLocationId.value = v },
+    get speed() { return speed.value },
+    set speed(v: number) { speed.value = v },
+    get saveState() { return saveState.value },
+    set saveState(v: string) { saveState.value = v },
+    getCurrentLocation, getSelectedLocation, getRankData, getNextBreakthroughNeed,
+    getPlayerPower, getPlayerInsight, getPlayerCharisma,
+    getCurrentAffiliation, getPlayerFaction, getSect,
+    getNpc, findInventoryEntry, ensurePlayerRelation,
+    addItemToInventory, removeItemFromInventory, adjustResource,
+    appendLog, getRegionStanding, adjustRegionStanding,
+    adjustFactionStanding, adjustRelation, updateDerivedStats,
+    createRelationState, deriveLifeStage, createInitialSect, createInitialPlayerFaction,
+    createLootBundle, createNPC, createMarketListings, createAuctionListings,
+    createInitialTerritories, findRoute,
+    saveGame, loadGame, resetGame, initializeGame,
+  }
+  setContext(contextAdapter)
+
+  return {
+    game, selectedLocationId, speed, saveState, mapTexture, feedback, initialized,
+    bus,
+    player, npcs, combat, world, market, auction, log, story,
+    currentLocation, selectedLocation, rankData, nextBreakthroughNeed,
+    playerPower, playerInsight, playerCharisma,
+    currentAffiliation, playerFaction, sect,
+    getCurrentLocation, getSelectedLocation, getRankData, getNextBreakthroughNeed,
+    getPlayerPower, getPlayerInsight, getPlayerCharisma,
+    getCurrentAffiliation, getPlayerFaction, getSect,
+    getNpc, findInventoryEntry, ensurePlayerRelation,
+    addItemToInventory, removeItemFromInventory, adjustResource,
+    appendLog, getRegionStanding, adjustRegionStanding,
+    adjustFactionStanding, adjustRelation,
+    updateDerivedStats, clearLog, toggleAutoBattle,
+    saveGame, loadGame, resetGame, initializeGame,
+    createRelationState, deriveLifeStage, createInitialSect, createInitialPlayerFaction,
+    createLootBundle, createNPC, createMarketListings, createAuctionListings,
+    createInitialTerritories, findRoute,
+  }
+})

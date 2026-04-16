@@ -205,6 +205,13 @@ body.dragging-window * {
   border-color: rgba(0, 0, 0, 0.15);
 }
 
+.control-button:disabled,
+.speed-button:disabled,
+.mode-button:disabled,
+.tab-button:disabled,
+.mini-button:disabled,
+.item-button:disabled,
+.npc-button:disabled,
 .control-button[aria-disabled="true"],
 .speed-button[aria-disabled="true"],
 .mode-button[aria-disabled="true"],
@@ -212,11 +219,24 @@ body.dragging-window * {
 .mini-button[aria-disabled="true"],
 .item-button[aria-disabled="true"],
 .npc-button[aria-disabled="true"] {
-  opacity: 0.72;
+  opacity: 0.84;
+  cursor: not-allowed;
   border-style: dashed;
+  border-color: rgba(98, 88, 78, 0.16);
   color: var(--text-dim);
+  background:
+    repeating-linear-gradient(135deg, rgba(0, 0, 0, 0.035), rgba(0, 0, 0, 0.035) 8px, rgba(0, 0, 0, 0.01) 8px, rgba(0, 0, 0, 0.01) 16px),
+    rgba(0, 0, 0, 0.02);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
 }
 
+.control-button:disabled:hover,
+.speed-button:disabled:hover,
+.mode-button:disabled:hover,
+.tab-button:disabled:hover,
+.mini-button:disabled:hover,
+.item-button:disabled:hover,
+.npc-button:disabled:hover,
 .control-button[aria-disabled="true"]:hover,
 .speed-button[aria-disabled="true"]:hover,
 .mode-button[aria-disabled="true"]:hover,
@@ -225,8 +245,10 @@ body.dragging-window * {
 .item-button[aria-disabled="true"]:hover,
 .npc-button[aria-disabled="true"]:hover {
   transform: none;
-  background: rgba(0, 0, 0, 0.03);
-  border-color: rgba(0, 0, 0, 0.08);
+  background:
+    repeating-linear-gradient(135deg, rgba(0, 0, 0, 0.035), rgba(0, 0, 0, 0.035) 8px, rgba(0, 0, 0, 0.01) 8px, rgba(0, 0, 0, 0.01) 16px),
+    rgba(0, 0, 0, 0.02);
+  border-color: rgba(98, 88, 78, 0.16);
 }
 
 .control-button.primary,

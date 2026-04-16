@@ -1,5 +1,11 @@
 ﻿/* ═══════════════ V3 Responsive Breakpoints ═══════════════ */
 
+.hud-mobile-status {
+  display: none;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
 /* ── 中宽桌面：HUD / Dock 提前改双行，不再硬挤单行 ── */
 @media (max-width: 1480px) {
   .hud-bar {
@@ -257,6 +263,14 @@
   .hud-vitals { display: none; }
   .hud-world { display: none; }
   .hud-speed { display: none; }
+  .hud-mobile-status {
+    display: flex;
+    grid-column: 1 / -1;
+  }
+  .hud-mobile-status .hud-chip {
+    padding: 4px 8px;
+    font-size: 12px;
+  }
   .hud-actions {
     gap: 4px;
   }
@@ -290,6 +304,10 @@
 }
 
 @media (max-width: 560px) {
+  .hud-mobile-status .hud-chip:last-child {
+    display: none;
+  }
+
   .hud-actions .control-button {
     padding: 4px 6px;
   }

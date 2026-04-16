@@ -2,14 +2,31 @@ import { getContext } from '@/core/context'
 import { bus } from '@/core/events'
 import {
   RANKS, MODE_OPTIONS, ACTION_META, PROPERTY_DEFS,
-  LOCATION_MAP, getItem,
+  LOCATION_MAP, canUseItemDirectly, getItem, getItemUsageSummary,
 } from '@/config'
 import { clamp, round, sample, uid } from '@/utils'
 import type { AssetState } from '@/types/game'
+import { getKnowledgeLearnIssues, learnKnowledge } from './knowledge'
 import { gainHeartMasteryFromAction, getTechniqueLearnIssues, learnTechnique } from './techniques'
 
 const ASSET_EFFECT_KIND_MAP: Record<string, string> = { assetFarm: 'farm', assetWorkshop: 'workshop', assetShop: 'shop' }
 const ASSET_KIND_LABELS: Record<string, string> = { farm: '田产', workshop: '工坊', shop: '铺面' }
+
+function applyItemEffect(effect: Record<string, number>) {
+  const ctx = getContext()
+  const player = ctx.game.player
+  if (effect.hp) ctx.adjustResource('hp', effect.hp, 'maxHp')
+  if (effect.qi) ctx.adjustResource('qi', effect.qi, 'maxQi')
+  if (effect.stamina) ctx.adjustResource('stamina', effect.stamina, 'maxStamina')
+  if (effect.reputation) player.reputation += effect.reputation
+  if (effect.breakthrough) player.breakthrough += effect.breakthrough
+  if (effect.power) player.power += effect.power
+  if (effect.insight) player.insight += effect.insight
+  if (effect.charisma) player.charisma += effect.charisma
+  if (effect.farming) player.skills.farming += effect.farming
+  if (effect.crafting) player.skills.crafting += effect.crafting
+  if (effect.trading) player.skills.trading += effect.trading
+}
 
 function getAssetCollection(kind: string): AssetState[] {
   const ctx = getContext()
@@ -106,23 +123,29 @@ export function consumeItem(itemId: string) {
     ctx.appendLog(`你换上了${item.name}。`, 'info')
   } else if (item.type === 'manual') {
     const skillId = item.manualSkillId
-    if (!skillId) { ctx.appendLog('这册秘籍暂时无法识别对应功法。', 'warn'); return }
-    const issues = getTechniqueLearnIssues(skillId)
-    if (issues.length) { ctx.appendLog(issues[0], 'warn'); return }
-    if (!ctx.removeItemFromInventory(itemId, 1)) return
-    learnTechnique(skillId, { sourceText: item.name })
+    if (skillId) {
+      const issues = getTechniqueLearnIssues(skillId)
+      if (issues.length) { ctx.appendLog(issues[0], 'warn'); return }
+      if (!ctx.removeItemFromInventory(itemId, 1)) return
+      learnTechnique(skillId, { sourceText: item.name })
+    } else if (item.knowledgeId) {
+      const issues = getKnowledgeLearnIssues(item.knowledgeId)
+      if (issues.length) { ctx.appendLog(issues[0], 'warn'); return }
+      if (!ctx.removeItemFromInventory(itemId, 1)) return
+      learnKnowledge(item.knowledgeId, { sourceText: item.name })
+    } else {
+      ctx.appendLog('这册秘籍暂时无法识别对应内容。', 'warn')
+      return
+    }
   } else {
     const assetClaim = claimAssetFromItem(item)
     if (assetClaim.handled) { ctx.appendLog(assetClaim.message!, assetClaim.success ? 'loot' : 'warn'); ctx.updateDerivedStats(); return }
+    if (!canUseItemDirectly(item)) {
+      ctx.appendLog(`${item.name}当前不能直接使用；${getItemUsageSummary(item)}。`, 'warn')
+      return
+    }
     if (!ctx.removeItemFromInventory(itemId, 1)) return
-    if (item.effect.hp) ctx.adjustResource('hp', item.effect.hp, 'maxHp')
-    if (item.effect.qi) ctx.adjustResource('qi', item.effect.qi, 'maxQi')
-    if (item.effect.stamina) ctx.adjustResource('stamina', item.effect.stamina, 'maxStamina')
-    if (item.effect.reputation) p.reputation += item.effect.reputation
-    if (item.effect.breakthrough) p.breakthrough += item.effect.breakthrough
-    if (item.effect.power) p.power += item.effect.power
-    if (item.effect.insight) p.insight += item.effect.insight
-    if (item.effect.charisma) p.charisma += item.effect.charisma
+    applyItemEffect(item.effect)
     ctx.appendLog(`你使用了${item.name}。`, 'info')
   }
   ctx.updateDerivedStats()

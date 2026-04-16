@@ -54,6 +54,14 @@
       <span class="hud-chip">{{ timeLabelText }}</span>
     </div>
 
+    <div class="hud-mobile-status">
+      <span class="hud-chip">血 {{ Math.round(player.hp) }}/{{ Math.round(player.maxHp) }}</span>
+      <span class="hud-chip">气 {{ Math.round(player.qi) }}/{{ Math.round(player.maxQi) }}</span>
+      <span class="hud-chip">突 {{ btPctDisplay }}%</span>
+      <span class="hud-chip">石 {{ formatNumber(player.money) }}</span>
+      <span class="hud-chip">第 {{ world.day }} 日 {{ timeLabelText }}</span>
+    </div>
+
     <!-- 存档状态 -->
     <div class="hud-save-state">
       <span class="hud-chip hud-chip-save">{{ saveState }}</span>

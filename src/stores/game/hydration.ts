@@ -1,0 +1,233 @@
+import type {
+  AssetState,
+  GameState,
+  LearnedTechniqueState,
+  LogEntry,
+  NpcState,
+  PlayerState,
+  SectState,
+  StoryHistoryEntry,
+  StoryProgressEntry,
+} from '@/types/game'
+import { LEGACY_SAVE_KEYS, MAX_LOG, SAVE_KEY, getTechnique, getTechniqueByItemId } from '@/config'
+import { ensureArray } from '@/utils'
+import {
+  createGameState,
+  createInitialPlayerFaction,
+  createInitialSect,
+  createInitialTechniqueState,
+  createNPC,
+  createRelationState,
+} from './factories'
+
+type TeachingState = SectState['teachings'][number]
+type LegacyEquipmentState = Partial<PlayerState['equipment']> & { manual?: string | null | undefined }
+
+function readLegacyEquipment(rawPlayer: Partial<PlayerState> | undefined): LegacyEquipmentState {
+  return (rawPlayer?.equipment || {}) as unknown as LegacyEquipmentState
+}
+
+function hydrateAssetCollection(value: unknown): AssetState[] {
+  const assetDefaults: Pick<AssetState, 'level' | 'managerNpcId' | 'automationTargetId' | 'pendingIncome'> = {
+    level: 1,
+    managerNpcId: null,
+    automationTargetId: null,
+    pendingIncome: 0,
+  }
+
+  return ensureArray<Partial<AssetState>>(value).map(asset => ({
+    ...assetDefaults,
+    ...asset,
+  }) as AssetState)
+}
+
+export function hydrateLearnedTechniques(rawPlayer: Partial<PlayerState> | undefined, learnedDay = 0) {
+  const learned: Record<string, LearnedTechniqueState> = {}
+  const rawLearned = (rawPlayer?.learnedTechniques || {}) as Record<string, Partial<LearnedTechniqueState>>
+
+  Object.entries(rawLearned).forEach(([skillId, rawState]) => {
+    const technique = getTechnique(skillId)
+    if (!technique) return
+    const rawMastery = Math.max(0, Number(rawState.mastery) || 0)
+    const rawStage = Number(rawState.stage) || 1
+    const legacyMastered = rawStage > 1 || rawMastery >= technique.masteryNeed
+    learned[skillId] = {
+      ...createInitialTechniqueState(skillId, Number(rawState.learnedDay) || learnedDay),
+      stage: 1,
+      mastery: legacyMastered ? technique.masteryNeed : Math.min(technique.masteryNeed, rawMastery),
+    }
+  })
+
+  const rawEquipment = readLegacyEquipment(rawPlayer)
+  const legacyManualId = typeof rawEquipment.manual === 'string' ? rawEquipment.manual : null
+  const heartId = typeof rawEquipment.heart === 'string'
+    ? rawEquipment.heart
+    : legacyManualId ? getTechniqueByItemId(legacyManualId)?.id || null : null
+
+  if (heartId && getTechnique(heartId) && !learned[heartId]) {
+    learned[heartId] = createInitialTechniqueState(heartId, learnedDay)
+  }
+
+  return learned
+}
+
+export function hydrateHeartSlot(
+  rawPlayer: Partial<PlayerState> | undefined,
+  learnedTechniques: Record<string, LearnedTechniqueState>,
+) {
+  const rawEquipment = readLegacyEquipment(rawPlayer)
+  const explicitHeart = typeof rawEquipment.heart === 'string' ? rawEquipment.heart : null
+  const legacyManualId = typeof rawEquipment.manual === 'string' ? rawEquipment.manual : null
+  const migratedHeart = explicitHeart || (legacyManualId ? getTechniqueByItemId(legacyManualId)?.id || null : null)
+  if (migratedHeart && learnedTechniques[migratedHeart]) return migratedHeart
+  return Object.keys(learnedTechniques).find((skillId) => getTechnique(skillId)?.kind === 'heart') || null
+}
+
+export function hydrateSectSkillLibrary(rawSect: Partial<SectState> | null | undefined) {
+  const rawSkillLibrary = Array.isArray((rawSect as Record<string, unknown> | null | undefined)?.skillLibrary)
+    ? (rawSect!.skillLibrary as string[])
+    : ensureArray<string>((rawSect as Record<string, unknown> | null | undefined)?.manualLibrary as string[] | undefined)
+
+  return [...new Set(rawSkillLibrary.map((entry) => {
+    if (getTechnique(entry)) return entry
+    return getTechniqueByItemId(entry)?.id || ''
+  }).filter(Boolean))]
+}
+
+export function hydrateTeachings(rawSect: Partial<SectState> | null | undefined) {
+  const rawTeachings = ensureArray<Record<string, unknown>>((rawSect as Record<string, unknown> | null | undefined)?.teachings as Record<string, unknown>[] | undefined)
+  return rawTeachings.map((entry) => {
+    const directSkillId = typeof entry.skillId === 'string' ? entry.skillId : ''
+    const legacyManualId = typeof entry.manualId === 'string' ? entry.manualId : ''
+    const skillId = directSkillId || (legacyManualId ? getTechniqueByItemId(legacyManualId)?.id || '' : '')
+    if (!skillId || !getTechnique(skillId) || typeof entry.npcId !== 'string') return null
+    return {
+      npcId: entry.npcId,
+      skillId,
+      stage: Math.max(0, Number(entry.stage) || 0),
+      mastery: Math.max(0, Number(entry.mastery ?? entry.progress ?? 0) || 0),
+    } satisfies TeachingState
+  }).filter((entry): entry is TeachingState => Boolean(entry))
+}
+
+export function hydrateGameState(raw: Partial<GameState> = {}): GameState {
+  const fresh = createGameState()
+  const rawNpcs = ensureArray<NpcState>(raw.npcs)
+  const rawSect = raw.player?.sect
+  const rawPF = raw.player?.playerFaction
+  const learnedTechniques = hydrateLearnedTechniques(raw.player, Number(raw.world?.day) || 0)
+  const heartSlot = hydrateHeartSlot(raw.player, learnedTechniques)
+  const skillLibrary = hydrateSectSkillLibrary(rawSect)
+  const teachings = hydrateTeachings(rawSect)
+  const rawEquipment = readLegacyEquipment(raw.player)
+  const defaultSect = rawSect ? createInitialSect(rawSect.name || '') : null
+  const defaultPF = rawPF ? createInitialPlayerFaction(rawPF.name || '') : null
+  const rawStoryProgress = raw.story?.progress || {}
+  const storyProgressDefaults: StoryProgressEntry = {
+    status: 'idle',
+    seenNodeIds: [],
+    triggerCount: 0,
+    lastNodeId: null,
+  }
+
+  const game: GameState = {
+    ...fresh, ...raw,
+    player: {
+      ...fresh.player, ...raw.player,
+      equipment: {
+        weapon: typeof rawEquipment?.weapon === 'string'
+          ? rawEquipment.weapon
+          : fresh.player.equipment.weapon,
+        armor: typeof rawEquipment?.armor === 'string'
+          ? rawEquipment.armor
+          : fresh.player.equipment.armor,
+        heart: heartSlot,
+      },
+      learnedTechniques,
+      learnedKnowledges: Object.fromEntries(
+        Object.entries(raw.player?.learnedKnowledges || {}).map(([knowledgeId, learnedDay]) => [knowledgeId, Number(learnedDay) || 0]),
+      ),
+      assets: { ...fresh.player.assets, ...(raw.player?.assets || {}) },
+      skills: { ...fresh.player.skills, ...(raw.player?.skills || {}) },
+      factionStanding: { ...fresh.player.factionStanding, ...(raw.player?.factionStanding || {}) },
+      regionStanding: { ...fresh.player.regionStanding, ...(raw.player?.regionStanding || {}) },
+      relations: { ...fresh.player.relations, ...(raw.player?.relations || {}) },
+      stats: { ...fresh.player.stats, ...(raw.player?.stats || {}) },
+      affiliationTasks: Array.isArray(raw.player?.affiliationTasks) ? raw.player!.affiliationTasks : [],
+      affiliationTaskDay: raw.player?.affiliationTaskDay || 0,
+      tradeRun: raw.player?.tradeRun || null,
+      travelPlan: raw.player?.travelPlan || null,
+      sect: rawSect ? {
+        ...defaultSect!, ...rawSect,
+        buildings: { ...defaultSect!.buildings, ...(rawSect.buildings || {}) },
+        skillLibrary,
+        teachings,
+      } : null,
+      playerFaction: rawPF ? {
+        ...defaultPF!, ...rawPF,
+        crew: { ...defaultPF!.crew, ...(rawPF.crew || {}) },
+        branches: { ...defaultPF!.branches, ...(rawPF.branches || {}) },
+      } : null,
+    },
+    world: {
+      ...fresh.world, ...raw.world,
+      factionFavor: { ...fresh.world.factionFavor, ...(raw.world?.factionFavor || {}) },
+      factions: { ...fresh.world.factions, ...(raw.world?.factions || {}) },
+      territories: { ...fresh.world.territories, ...(raw.world?.territories || {}) },
+      realm: { ...fresh.world.realm, ...(raw.world?.realm || {}) },
+    },
+    combat: { ...fresh.combat, ...(raw.combat || {}) },
+    story: {
+      ...fresh.story, ...(raw.story || {}),
+      bindings: { ...fresh.story.bindings, ...(raw.story?.bindings || {}) },
+      progress: Object.fromEntries(
+        Object.entries(rawStoryProgress).map(([key, value]) => {
+          const entry = value as Partial<StoryProgressEntry> | undefined
+          return [key, {
+            ...storyProgressDefaults,
+            ...(entry || {}),
+            seenNodeIds: ensureArray<string>(entry?.seenNodeIds),
+          }]
+        }),
+      ),
+      flags: { ...fresh.story.flags, ...(raw.story?.flags || {}) },
+      history: ensureArray<StoryHistoryEntry>(raw.story?.history).slice(0, 24).map(entry => ({
+        storyId: entry.storyId || '',
+        progressKey: entry.progressKey || entry.storyId || '',
+        nodeId: entry.nodeId || '',
+        title: entry.title || '未命名剧情',
+        speaker: entry.speaker || '',
+        text: entry.text || '',
+        day: Number(entry.day) || 0,
+        hour: Number(entry.hour) || 0,
+      })),
+    },
+    market: raw.market || fresh.market,
+    auction: raw.auction || fresh.auction,
+    migrationFlags: { ...fresh.migrationFlags, ...(raw.migrationFlags || {}) },
+    npcs: rawNpcs.length
+      ? rawNpcs.map((npc, i) => ({
+          ...createNPC(i + 80), ...npc,
+          lifeEvents: ensureArray<string>(npc.lifeEvents).length ? npc.lifeEvents : [npc.lastEvent || '初入江湖'],
+          relation: { ...createRelationState(), ...(npc.relation || {}) },
+          travelPlan: npc.travelPlan || null,
+        }))
+      : fresh.npcs,
+    log: ensureArray<LogEntry>(raw.log).slice(0, MAX_LOG),
+  }
+
+  game.player.assets.farms = hydrateAssetCollection(game.player.assets.farms)
+  game.player.assets.workshops = hydrateAssetCollection(game.player.assets.workshops)
+  game.player.assets.shops = hydrateAssetCollection(game.player.assets.shops)
+
+  return game
+}
+
+export function readStoredSave() {
+  const keys = [SAVE_KEY, ...LEGACY_SAVE_KEYS]
+  for (const key of keys) {
+    const raw = localStorage.getItem(key)
+    if (raw) return { key, raw }
+  }
+  return null
+}

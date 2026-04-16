@@ -15,18 +15,23 @@ export {
 } from './constants'
 export type { RankData, ModeOption, ActionMeta } from './constants'
 
-export { ITEMS, ITEM_MAP, DISTRIBUTABLE_ITEMS, getItem, getManualItemBySkillId } from './items'
-export type { ItemData } from './items'
+export { ITEMS, ITEM_MAP, DISTRIBUTABLE_ITEMS, canUseItemDirectly, getItem, getItemUsageSummary, getManualItemBySkillId, hasAssetClaimEffect } from './items'
+export { getKnowledgeItemById } from './items'
+export type { ItemData, ManualCategory } from './items'
+
+export { KNOWLEDGE_ENTRIES, KNOWLEDGE_MAP, getKnowledge } from './knowledge'
+export type { KnowledgeData } from './knowledge'
 
 export {
 	TECHNIQUES,
 	TECHNIQUE_MAP,
 	TECHNIQUE_DISCOVERY_RECIPES,
+	getTechniqueResolvedEffectValue,
 	getTechnique,
 	getTechniqueByItemId,
 	getTechniqueBookItem,
 } from './techniques'
-export type { TechniqueData, TechniqueDiscoveryRecipe } from './techniques'
+export type { TechniqueData, TechniqueDiscoveryRecipe, TechniqueScribeCost } from './techniques'
 
 export { LOCATIONS, LOCATION_MAP, getLocation } from './world'
 export type { LocationData } from './world'

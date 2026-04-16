@@ -1,11 +1,11 @@
-import { RARITY_META, MODE_OPTIONS, FACTIONS, FACTION_MAP, SECT_BUILDINGS } from '@/config'
+import { RARITY_META, MODE_OPTIONS, FACTIONS, FACTION_MAP, SECT_BUILDINGS, getTechnique } from '@/config'
 import { round } from '@/utils'
 import type { ItemData } from '@/config/items'
 import type { NpcState } from '@/types/game'
 
 const MARKET_BIAS_LABELS: Record<string, string> = {
   herb: '药材', grain: '粮货', wood: '木料', ore: '矿料',
-  ice: '寒材', relic: '异宝', fire: '火材', scroll: '残卷', pill: '丹药',
+  ice: '寒材', relic: '异宝', fire: '火材', scroll: '残卷', pill: '丹药', paper: '册页', ink: '灵墨',
 }
 
 const ROLE_LABELS: Record<string, string> = {
@@ -19,6 +19,31 @@ const FACTION_TYPE_LABELS: Record<string, string> = {
 
 const UNLOCK_LABELS: Record<string, string> = {
   farm: '田产', workshop: '工坊', shop: '铺面', warehouse: '仓房', sect: '门内事务',
+}
+
+const ITEM_TYPE_LABELS: Record<string, string> = {
+  herb: '药材',
+  grain: '粮货',
+  wood: '木料',
+  ore: '矿料',
+  cloth: '布料',
+  paper: '册页',
+  ink: '灵墨',
+  seed: '种子',
+  weapon: '兵器',
+  armor: '护甲',
+  leather: '皮料',
+  pill: '丹药',
+  manual: '秘籍',
+  deed: '地契',
+  permit: '牌照',
+  relic: '异宝',
+  ice: '寒材',
+  fire: '火材',
+  scroll: '残卷',
+  tool: '工具',
+  token: '信物',
+  sect: '宗门器物',
 }
 
 const TECHNIQUE_KIND_LABELS: Record<string, string> = {
@@ -46,12 +71,28 @@ export function getUnlockLabel(type: string) {
   return UNLOCK_LABELS[type] || type
 }
 
+export function getItemTypeLabel(itemOrType: ItemData | string | null | undefined) {
+  const item = typeof itemOrType === 'string' ? null : itemOrType
+  const type = typeof itemOrType === 'string' ? itemOrType : itemOrType?.type || ''
+
+  if (type === 'manual' && item?.knowledgeId) return '学识札记'
+
+  if (type === 'manual' && item?.manualSkillId) {
+    const kind = getTechnique(item.manualSkillId)?.kind
+    if (kind === 'heart') return '心法秘籍'
+    if (kind === 'spell') return '术法秘籍'
+  }
+
+  return ITEM_TYPE_LABELS[type] || type || '杂物'
+}
+
 export function formatUnlockLabels(unlocks: string[] = []) {
   return unlocks.map(e => getUnlockLabel(e)).join('、')
 }
 
 function describeEffectRecord(effect: Record<string, number> | null | undefined) {
   if (!effect) return ''
+  const percentKeys = new Set(['cultivation', 'breakthroughRate'])
   const labels: Record<string, string> = {
     hp: '气血', qi: '真气', stamina: '体力', power: '战力', insight: '悟性',
     charisma: '魅力', breakthrough: '突破火候', breakthroughRate: '突破率',
@@ -59,10 +100,15 @@ function describeEffectRecord(effect: Record<string, number> | null | undefined)
     sectPrestige: '宗门威望', romance: '情缘', reputation: '声望',
     assetFarm: '可置办田产', assetWorkshop: '可经营工坊', assetShop: '可置办铺面',
     damageMultiplier: '术法倍率', burn: '灼烧', chill: '凝滞', expose: '破绽', qiCost: '耗气',
+    farming: '农务', crafting: '工艺', trading: '商道',
   }
   return Object.entries(effect)
     .filter(([, v]) => v)
-    .map(([k, v]) => `${labels[k] || k} ${typeof v === 'number' && v < 1 ? `${Math.round(v * 100)}%` : (v as number) > 0 ? `+${round(v as number, 2)}` : round(v as number, 2)}`)
+    .map(([k, v]) => {
+      if (k === 'damageMultiplier') return `${labels[k] || k} ×${round(v, 2)}`
+      if (percentKeys.has(k)) return `${labels[k] || k} ${v > 0 ? '+' : ''}${Math.round(v * 100)}%`
+      return `${labels[k] || k} ${v > 0 ? `+${round(v, 2)}` : round(v, 2)}`
+    })
     .join('，')
 }
 
@@ -83,4 +129,4 @@ export function getPercent(value: number, max: number) {
   return Math.max(0, Math.min(100, Math.round((value / max) * 100)))
 }
 
-export { MARKET_BIAS_LABELS, ROLE_LABELS, FACTION_TYPE_LABELS, UNLOCK_LABELS, TECHNIQUE_KIND_LABELS }
+export { ITEM_TYPE_LABELS, MARKET_BIAS_LABELS, ROLE_LABELS, FACTION_TYPE_LABELS, UNLOCK_LABELS, TECHNIQUE_KIND_LABELS }

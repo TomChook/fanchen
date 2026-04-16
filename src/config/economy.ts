@@ -9,6 +9,7 @@ export interface FactionData {
   unlocks: string[]
 }
 
+/* ─── Factions ─── */
 export const FACTIONS: FactionData[] = [
   {
     id: 'qinghe-commons', name: '青禾乡社', type: 'village', locationId: 'qinghe',
@@ -74,6 +75,7 @@ export interface PropertyDef {
   desc: string
 }
 
+/* ─── Properties ─── */
 export const PROPERTY_DEFS: PropertyDef[] = [
   {
     id: 'village-farm', label: '薄田一亩', kind: 'farm', cost: 120,
@@ -114,6 +116,7 @@ export interface CropData {
   desc: string
 }
 
+/* ─── Crops ─── */
 export const CROPS: CropData[] = [
   { id: 'grain-crop', label: '粗灵米', seedItemId: 'seed-grain', harvestItemId: 'spirit-grain', growDays: 3, yield: 3, desc: '最适合凡人起步的稳妥作物。' },
   { id: 'herb-crop', label: '雾心草', seedItemId: 'seed-herb', harvestItemId: 'mist-herb', growDays: 4, yield: 2, desc: '成长更慢，但比种粮更值钱。' },
@@ -138,6 +141,7 @@ export interface CraftRecipe {
   inputs: CraftInput[]
 }
 
+/* ─── Craft Recipes ─── */
 export const CRAFT_RECIPES: CraftRecipe[] = [
   {
     id: 'craft-wood-spear', label: '打造木柄短枪', outputItemId: 'wood-spear', outputQuantity: 1,
@@ -163,6 +167,36 @@ export const CRAFT_RECIPES: CraftRecipe[] = [
     id: 'craft-herb-paste', label: '调制草膏', outputItemId: 'herb-paste', outputQuantity: 1,
     cost: 10, requiresPropertyKind: 'workshop', minRankIndex: 0,
     inputs: [{ itemId: 'mist-herb', quantity: 2 }, { itemId: 'spirit-grain', quantity: 1 }],
+  },
+  {
+    id: 'craft-blank-codex', label: '装订空白册页', outputItemId: 'blank-codex', outputQuantity: 1,
+    cost: 14, requiresPropertyKind: 'workshop', minRankIndex: 1,
+    inputs: [{ itemId: 'cloth-roll', quantity: 1 }, { itemId: 'lacquer-wood', quantity: 1 }],
+  },
+  {
+    id: 'craft-spirit-ink', label: '研磨灵墨', outputItemId: 'spirit-ink', outputQuantity: 1,
+    cost: 16, requiresPropertyKind: 'workshop', minRankIndex: 1,
+    inputs: [{ itemId: 'mist-herb', quantity: 1 }, { itemId: 'scrap-iron', quantity: 1 }],
+  },
+  {
+    id: 'craft-marrows-pellet', label: '调制养元散', outputItemId: 'marrow-pellet', outputQuantity: 1,
+    cost: 18, requiresPropertyKind: 'workshop', minRankIndex: 1,
+    inputs: [{ itemId: 'mist-herb', quantity: 2 }, { itemId: 'moonleaf', quantity: 1 }, { itemId: 'spirit-grain', quantity: 1 }],
+  },
+  {
+    id: 'craft-focus-pellet', label: '炼制明神丹', outputItemId: 'focus-pellet', outputQuantity: 1,
+    cost: 24, requiresPropertyKind: 'workshop', minRankIndex: 2,
+    inputs: [{ itemId: 'moonleaf', quantity: 1 }, { itemId: 'cold-crystal', quantity: 1 }],
+  },
+  {
+    id: 'craft-bronze-halberd', label: '打造青铜戟', outputItemId: 'bronze-halberd', outputQuantity: 1,
+    cost: 28, requiresPropertyKind: 'workshop', minRankIndex: 1,
+    inputs: [{ itemId: 'sun-copper', quantity: 2 }, { itemId: 'lacquer-wood', quantity: 1 }],
+  },
+  {
+    id: 'craft-scale-vest', label: '缝制鳞光内甲', outputItemId: 'scale-vest', outputQuantity: 1,
+    cost: 26, requiresPropertyKind: 'workshop', minRankIndex: 1,
+    inputs: [{ itemId: 'beast-hide', quantity: 1 }, { itemId: 'frost-silk', quantity: 1 }],
   },
 ]
 

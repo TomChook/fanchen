@@ -7,7 +7,6 @@ export interface LearnedTechniqueState {
   skillId: string
   stage: number
   mastery: number
-  scribeCharges: number
   learnedDay: number
 }
 
@@ -34,6 +33,10 @@ export interface PlayerSkills {
 
 export interface TechniqueCollection {
   [skillId: string]: LearnedTechniqueState
+}
+
+export interface KnowledgeCollection {
+  [knowledgeId: string]: number
 }
 
 export interface PlayerStats {
@@ -94,6 +97,7 @@ export interface PlayerState {
   locationId: string; mode: string; action: string
   inventory: InventoryEntry[]; equipment: Equipment
   learnedTechniques: TechniqueCollection
+  learnedKnowledges: KnowledgeCollection
   affiliationId: string | null; affiliationRank: number
   factionStanding: Record<string, number>; regionStanding: Record<string, number>
   factionCooldowns: Record<string, number>

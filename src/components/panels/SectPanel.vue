@@ -308,6 +308,6 @@ function getTeachingSummary(npcId: string) {
   const technique = getTechnique(teaching.skillId)
   const need = Math.max(10, Math.round((technique?.masteryNeed || 40) * 0.45))
   const percent = Math.max(0, Math.min(100, Math.round((teaching.mastery / need) * 100)))
-  return `正在研习：${technique?.name || teaching.skillId} · 第${teaching.stage}阶 · ${percent}%`
+  return `正在研习：${technique?.name || teaching.skillId} · 熟练 ${percent}%${percent >= 100 ? ' · 已圆满' : ''}`
 }
 </script>
