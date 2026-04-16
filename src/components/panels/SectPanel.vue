@@ -130,10 +130,11 @@
     </div>
     <h3 class="subsection-title">藏经阁</h3>
     <div class="inventory-grid">
-      <template v-if="sect.manualLibrary.length">
-        <UiPanelCard v-for="manualId in sect.manualLibrary" :key="manualId" tone="item">
-          <UiCardHeader :title="getItemName(manualId)" title-class="item-title" />
-          <p class="item-meta">{{ getItemDesc(manualId) }}</p>
+      <template v-if="sect.skillLibrary.length">
+        <UiPanelCard v-for="skillId in sect.skillLibrary" :key="skillId" tone="item">
+          <UiCardHeader :kicker="getTechniqueKindLabel(getTechniqueData(skillId)?.kind || '')" :title="getTechniqueName(skillId)" title-class="item-title" />
+          <p class="item-meta">{{ getTechniqueDesc(skillId) }}</p>
+          <p class="item-meta">{{ getTechniqueEffect(skillId) }}</p>
         </UiPanelCard>
       </template>
       <div v-else class="empty-state">藏经阁尚无功法，可先从行囊中收入秘籍。</div>
@@ -150,10 +151,11 @@
             </UiCardHeader>
             <p class="npc-meta">{{ store.getNpc(npcId)!.profession || store.getNpc(npcId)!.title }} · {{ getRankName(store.getNpc(npcId)!.rankIndex) }}</p>
             <p class="npc-meta">最近动向：{{ store.getNpc(npcId)!.lastEvent }}</p>
+            <p class="npc-meta">{{ getTeachingSummary(npcId) }}</p>
             <UiActionGroup variant="teaching">
-              <template v-if="sect.manualLibrary.length">
-                <button v-for="mid in sect.manualLibrary" :key="mid" class="npc-button" @click="doTeach(npcId, mid)">
-                  传授{{ getItemName(mid) }}
+              <template v-if="sect.skillLibrary.length">
+                <button v-for="skillId in sect.skillLibrary" :key="skillId" class="npc-button" @click="doTeach(npcId, skillId)">
+                  传授{{ getTechniqueName(skillId) }}
                 </button>
               </template>
               <span v-else class="muted">藏经阁暂无可传功法</span>
@@ -179,9 +181,9 @@
 import { computed } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useGameStore } from '@/stores/game'
-import { FACTIONS, FACTION_MAP, RANKS, LOCATION_MAP, SECT_BUILDINGS, getItem } from '@/config'
+import { FACTIONS, FACTION_MAP, RANKS, LOCATION_MAP, SECT_BUILDINGS, getTechnique } from '@/config'
 import { formatNumber, round } from '@/utils'
-import { getFactionTypeLabel, formatUnlockLabels } from '@/composables/useUIHelpers'
+import { describeTechniqueEffect, getFactionTypeLabel, formatUnlockLabels, getTechniqueKindLabel } from '@/composables/useUIHelpers'
 import {
   canCompleteAffiliationTask, canJoinFaction, completeAffiliationTask, explainFactionJoin, getAffiliationTaskIssues,
   getFactionRejoinCooldownDays, hasActiveFactionPursuit, joinFaction, leaveFaction, refreshAffiliationTasks,
@@ -202,8 +204,10 @@ const { player, world, currentAffiliation, playerFaction, sect } = storeToRefs(s
 
 function getRankName(idx: number) { return RANKS[Math.min(idx, RANKS.length - 1)].name }
 function getLocationName(id: string) { return LOCATION_MAP.get(id)?.name || id }
-function getItemName(id: string) { return getItem(id)?.name || id }
-function getItemDesc(id: string) { return getItem(id)?.desc || '' }
+function getTechniqueData(id: string) { return getTechnique(id) || null }
+function getTechniqueName(id: string) { return getTechnique(id)?.name || id }
+function getTechniqueDesc(id: string) { return getTechnique(id)?.desc || '' }
+function getTechniqueEffect(id: string) { return describeTechniqueEffect(getTechnique(id)?.effect || null) }
 
 const affiliationTasks = computed(() => currentAffiliation.value ? refreshAffiliationTasks() : [])
 const factionMissions = computed(() => playerFaction.value ? refreshPlayerFactionMissions() : [])
@@ -296,5 +300,14 @@ function doCompleteFactionMission(id: string) { completePlayerFactionMission(id)
 function doCreateSect() { createSect() }
 function doUpgradeBuilding(key: string) { upgradeSectBuilding(key) }
 function doCompleteSectMission(id: string) { completeSectMission(id) }
-function doTeach(npcId: string, manualId: string) { assignTeaching(npcId, manualId) }
+function doTeach(npcId: string, skillId: string) { assignTeaching(npcId, skillId) }
+
+function getTeachingSummary(npcId: string) {
+  const teaching = sect.value?.teachings.find(entry => entry.npcId === npcId)
+  if (!teaching) return '当前未安排专门传功。'
+  const technique = getTechnique(teaching.skillId)
+  const need = Math.max(10, Math.round((technique?.masteryNeed || 40) * 0.45))
+  const percent = Math.max(0, Math.min(100, Math.round((teaching.mastery / need) * 100)))
+  return `正在研习：${technique?.name || teaching.skillId} · 第${teaching.stage}阶 · ${percent}%`
+}
 </script>

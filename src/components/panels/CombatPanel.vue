@@ -59,11 +59,18 @@
         </p>
         <UiActionGroup variant="combat">
           <button class="item-button" @click="doAction('attack')">普攻</button>
-          <button class="item-button" @click="doAction('skill')">术法</button>
           <button class="item-button" @click="doAction('defend')">防守</button>
           <button class="item-button" @click="doAction('item')">用药</button>
           <button class="item-button" @click="doAction('flee')">脱战</button>
           <button class="item-button" @click="toggleAuto">{{ combat.autoBattle ? '关闭自动战斗' : '开启自动战斗' }}</button>
+        </UiActionGroup>
+        <UiActionGroup variant="combat">
+          <template v-if="learnedSpells.length">
+            <button v-for="entry in learnedSpells" :key="entry.technique.id" class="item-button" @click="doSpell(entry.technique.id)">
+              {{ entry.technique.name }} · {{ entry.state.stage }}阶 · {{ entry.technique.effect.qiCost }}气
+            </button>
+          </template>
+          <span v-else class="muted">尚未学会术法，自动战斗会改以普攻应对。</span>
         </UiActionGroup>
       </UiPanelCard>
       <UiPanelCard tone="combat">
@@ -88,6 +95,7 @@ import { useGameStore } from '@/stores/game'
 import { LOCATION_MAP, MONSTER_AFFIXES, REALM_TEMPLATES } from '@/config'
 import { round } from '@/utils'
 import { processBattleRound } from '@/systems/combat'
+import { getLearnedTechniques } from '@/systems/techniques'
 import { tickWorld, travelAndChallengeRealm } from '@/systems/world'
 import MeterBar from '../MeterBar.vue'
 import UiActionGroup from '@/components/ui/UiActionGroup.vue'
@@ -100,6 +108,11 @@ const store = useGameStore()
 const { player, combat } = storeToRefs(store)
 
 const enemy = computed(() => combat.value.currentEnemy)
+
+const learnedSpells = computed(() => {
+  void player.value.learnedTechniques
+  return getLearnedTechniques('spell')
+})
 
 const activeRealm = computed(() => {
   const id = store.world.realm.activeRealmId
@@ -117,6 +130,11 @@ function getAffixLabel(affixId: string) {
 
 function doAction(action: string) {
   processBattleRound(action)
+  tickWorld()
+}
+
+function doSpell(skillId: string) {
+  processBattleRound('skill', skillId)
   tickWorld()
 }
 

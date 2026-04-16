@@ -21,6 +21,11 @@ const UNLOCK_LABELS: Record<string, string> = {
   farm: '田产', workshop: '工坊', shop: '铺面', warehouse: '仓房', sect: '门内事务',
 }
 
+const TECHNIQUE_KIND_LABELS: Record<string, string> = {
+  heart: '心法',
+  spell: '术法',
+}
+
 export function getModeLabel(modeId: string) {
   return MODE_OPTIONS.find(m => m.id === modeId)?.label || modeId
 }
@@ -45,19 +50,32 @@ export function formatUnlockLabels(unlocks: string[] = []) {
   return unlocks.map(e => getUnlockLabel(e)).join('、')
 }
 
-export function describeItemEffect(item: ItemData | null | undefined) {
-  if (!item?.effect) return ''
+function describeEffectRecord(effect: Record<string, number> | null | undefined) {
+  if (!effect) return ''
   const labels: Record<string, string> = {
     hp: '气血', qi: '真气', stamina: '体力', power: '战力', insight: '悟性',
     charisma: '魅力', breakthrough: '突破火候', breakthroughRate: '突破率',
     cultivation: '修炼加成', realmSense: '秘境感应', sectTeaching: '传功效率',
     sectPrestige: '宗门威望', romance: '情缘', reputation: '声望',
     assetFarm: '可置办田产', assetWorkshop: '可经营工坊', assetShop: '可置办铺面',
+    damageMultiplier: '术法倍率', burn: '灼烧', chill: '凝滞', expose: '破绽', qiCost: '耗气',
   }
-  return Object.entries(item.effect as Record<string, number | undefined>)
+  return Object.entries(effect)
     .filter(([, v]) => v)
     .map(([k, v]) => `${labels[k] || k} ${typeof v === 'number' && v < 1 ? `${Math.round(v * 100)}%` : (v as number) > 0 ? `+${round(v as number, 2)}` : round(v as number, 2)}`)
     .join('，')
+}
+
+export function describeItemEffect(item: ItemData | null | undefined) {
+  return describeEffectRecord(item?.effect)
+}
+
+export function describeTechniqueEffect(effect: Record<string, number> | null | undefined) {
+  return describeEffectRecord(effect)
+}
+
+export function getTechniqueKindLabel(kind: string) {
+  return TECHNIQUE_KIND_LABELS[kind] || kind
 }
 
 export function getPercent(value: number, max: number) {
@@ -65,4 +83,4 @@ export function getPercent(value: number, max: number) {
   return Math.max(0, Math.min(100, Math.round((value / max) * 100)))
 }
 
-export { MARKET_BIAS_LABELS, ROLE_LABELS, FACTION_TYPE_LABELS, UNLOCK_LABELS }
+export { MARKET_BIAS_LABELS, ROLE_LABELS, FACTION_TYPE_LABELS, UNLOCK_LABELS, TECHNIQUE_KIND_LABELS }

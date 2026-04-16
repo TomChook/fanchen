@@ -5,10 +5,10 @@ import type {
   InventoryEntry, RelationState, LogEntry, MarketListing, AuctionListing,
   AssetState, EnemyState, PlayerEffects, CombatHistoryEntry, CombatLastResult,
   SectState, PlayerFactionState, TradeRun, TerritoryEntry, IndustryOrder,
-  StoryState, StoryHistoryEntry, StoryProgressEntry,
+  StoryState, StoryHistoryEntry, StoryProgressEntry, LearnedTechniqueState,
 } from '@/types/game'
 import {
-  RANKS, ITEMS, LOCATIONS, LOCATION_MAP, FACTIONS, FACTION_MAP,
+  RANKS, ITEMS, DISTRIBUTABLE_ITEMS, LOCATIONS, LOCATION_MAP, FACTIONS, FACTION_MAP,
   MONSTER_TEMPLATES, MONSTER_AFFIXES, REALM_TEMPLATES, PROPERTY_DEFS,
   CROPS, CRAFT_RECIPES, MODE_OPTIONS, ACTION_META, TIME_LABELS,
   SAVE_KEY, LEGACY_SAVE_KEYS, MAX_LOG, NPC_ARCHETYPES, PERSONALITIES,
@@ -20,7 +20,7 @@ import {
   fillTemplate, findRoute, buildMapTexture,
 } from '@/utils'
 import type { MapTexture } from '@/utils'
-import { getItem } from '@/config'
+import { getItem, getTechnique, getTechniqueByItemId } from '@/config'
 import { bus } from '@/core/events'
 import { setContext, type GameContext } from '@/core/context'
 
@@ -43,7 +43,7 @@ function createInitialSect(name = ''): SectState {
     id: 'player-sect', name, foundedDay: 0, prestige: 0, treasury: 0, food: 60,
     level: 1, disciples: [], elders: [],
     buildings: { hall: 1, dojo: 0, library: 0, market: 0 },
-    manualLibrary: [], teachings: [], missions: [], missionDay: 0,
+    skillLibrary: [], teachings: [], missions: [], missionDay: 0,
     outerDisciples: 0, eventCooldown: 0,
   }
 }
@@ -86,7 +86,8 @@ function createInitialPlayer(): PlayerState {
       { itemId: 'cloth-roll', quantity: 1 },
       { itemId: 'seed-grain', quantity: 1 },
     ],
-    equipment: { weapon: null, armor: null, manual: null },
+    equipment: { weapon: null, armor: null, heart: null },
+    learnedTechniques: {},
     affiliationId: null, affiliationRank: 0,
     factionStanding: {}, regionStanding: {}, factionCooldowns: {},
     wantedByFactionId: null, wantedUntilDay: 0, relations: {},
@@ -106,13 +107,17 @@ function createInitialPlayer(): PlayerState {
   }
 }
 
+function createInitialTechniqueState(skillId: string, learnedDay = 0): LearnedTechniqueState {
+  return { skillId, stage: 1, mastery: 0, scribeCharges: 0, learnedDay }
+}
+
 function createLootBundle(amount: number, options: { minRarity?: number; maxRarity?: number; minTier?: number; maxTier?: number } = {}) {
   const minRarity = options.minRarity ?? 0
   const maxRarity = options.maxRarity ?? 4
   const minTier = options.minTier ?? 0
   const maxTier = options.maxTier ?? 6
   const rarityOrder = ['common', 'uncommon', 'rare', 'epic', 'legendary']
-  const pool = ITEMS.filter(item => {
+  const pool = DISTRIBUTABLE_ITEMS.filter(item => {
     const ri = rarityOrder.indexOf(item.rarity)
     return ri >= minRarity && ri <= maxRarity && item.tier >= minTier && item.tier <= maxTier
   })
@@ -180,13 +185,13 @@ function createMarketListings(location: { id: string; marketTier: number; market
   const amount = randomInt(5, 8)
   const allowedTier = Math.max(0, location.marketTier || 0)
   for (let i = 0; i < amount; i++) {
-    const weightedPool = ITEMS.filter(item => {
+    const weightedPool = DISTRIBUTABLE_ITEMS.filter(item => {
       if (item.tier > allowedTier + (Math.random() < 0.2 ? 1 : 0)) return false
       if (['legendary', 'epic'].includes(item.rarity) && allowedTier < 4) return false
       if (['deed', 'permit', 'sect'].includes(item.type) && !location.tags.some(tag => ['town', 'market', 'port', 'forge', 'sect'].includes(tag))) return false
       return item.type === location.marketBias || Math.random() < 0.35
     })
-    const item = sample(weightedPool.length ? weightedPool : ITEMS)
+    const item = sample(weightedPool.length ? weightedPool : DISTRIBUTABLE_ITEMS)
     const modifier = randomFloat(0.96, 1.18) + location.marketTier * 0.04
     listings.push({
       listingId: uid(`market-${location.id}`),
@@ -208,7 +213,7 @@ function createInitialMarket(): Record<string, MarketListing[]> {
 function createAuctionListings(amount: number, playerRankIndex = 0, playerReputation = 0): AuctionListing[] {
   const listings: AuctionListing[] = []
   const progressionTier = Math.max(1, Math.min(6, playerRankIndex + Math.floor(playerReputation / 18) + 1))
-  const eligible = ITEMS.filter(item => item.tier >= 1 && item.tier <= progressionTier + 1 && !['seed', 'grain', 'wood', 'cloth'].includes(item.type))
+  const eligible = DISTRIBUTABLE_ITEMS.filter(item => item.tier >= 1 && item.tier <= progressionTier + 1 && !['seed', 'grain', 'wood', 'cloth'].includes(item.type))
   for (let i = 0; i < amount; i++) {
     const item = sample(eligible)
     const currentBid = Math.round(item.baseValue * randomFloat(0.88, 1.22))
@@ -272,6 +277,74 @@ function createGameState(): GameState {
   }
 }
 
+function getTechniqueStageMultiplier(state: Pick<LearnedTechniqueState, 'stage'> | null | undefined) {
+  if (!state) return 1
+  return 1 + Math.max(0, state.stage - 1) * 0.24
+}
+
+function hydrateLearnedTechniques(rawPlayer: Partial<PlayerState> | undefined, learnedDay = 0) {
+  const learned: Record<string, LearnedTechniqueState> = {}
+  const rawLearned = (rawPlayer?.learnedTechniques || {}) as Record<string, Partial<LearnedTechniqueState>>
+
+  Object.entries(rawLearned).forEach(([skillId, rawState]) => {
+    if (!getTechnique(skillId)) return
+    learned[skillId] = {
+      ...createInitialTechniqueState(skillId, Number(rawState.learnedDay) || learnedDay),
+      stage: Math.max(1, Number(rawState.stage) || 1),
+      mastery: Math.max(0, Number(rawState.mastery) || 0),
+      scribeCharges: Math.max(0, Number(rawState.scribeCharges) || 0),
+    }
+  })
+
+  const rawEquipment = (rawPlayer?.equipment || {}) as Record<string, unknown>
+  const legacyManualId = typeof rawEquipment.manual === 'string' ? rawEquipment.manual : null
+  const heartId = typeof rawEquipment.heart === 'string'
+    ? rawEquipment.heart
+    : legacyManualId ? getTechniqueByItemId(legacyManualId)?.id || null : null
+
+  if (heartId && getTechnique(heartId) && !learned[heartId]) {
+    learned[heartId] = createInitialTechniqueState(heartId, learnedDay)
+  }
+
+  return learned
+}
+
+function hydrateHeartSlot(rawPlayer: Partial<PlayerState> | undefined, learnedTechniques: Record<string, LearnedTechniqueState>) {
+  const rawEquipment = (rawPlayer?.equipment || {}) as Record<string, unknown>
+  const explicitHeart = typeof rawEquipment.heart === 'string' ? rawEquipment.heart : null
+  const legacyManualId = typeof rawEquipment.manual === 'string' ? rawEquipment.manual : null
+  const migratedHeart = explicitHeart || (legacyManualId ? getTechniqueByItemId(legacyManualId)?.id || null : null)
+  if (migratedHeart && learnedTechniques[migratedHeart]) return migratedHeart
+  return Object.keys(learnedTechniques).find((skillId) => getTechnique(skillId)?.kind === 'heart') || null
+}
+
+function hydrateSectSkillLibrary(rawSect: Partial<SectState> | null | undefined) {
+  const rawSkillLibrary = Array.isArray((rawSect as Record<string, unknown> | null | undefined)?.skillLibrary)
+    ? (rawSect!.skillLibrary as string[])
+    : ensureArray<string>((rawSect as Record<string, unknown> | null | undefined)?.manualLibrary as string[] | undefined)
+
+  return [...new Set(rawSkillLibrary.map((entry) => {
+    if (getTechnique(entry)) return entry
+    return getTechniqueByItemId(entry)?.id || ''
+  }).filter(Boolean))]
+}
+
+function hydrateTeachings(rawSect: Partial<SectState> | null | undefined) {
+  const rawTeachings = ensureArray<Record<string, unknown>>((rawSect as Record<string, unknown> | null | undefined)?.teachings as Record<string, unknown>[] | undefined)
+  return rawTeachings.map((entry) => {
+    const directSkillId = typeof entry.skillId === 'string' ? entry.skillId : ''
+    const legacyManualId = typeof entry.manualId === 'string' ? entry.manualId : ''
+    const skillId = directSkillId || (legacyManualId ? getTechniqueByItemId(legacyManualId)?.id || '' : '')
+    if (!skillId || !getTechnique(skillId) || typeof entry.npcId !== 'string') return null
+    return {
+      npcId: entry.npcId,
+      skillId,
+      stage: Math.max(1, Number(entry.stage) || 1),
+      mastery: Math.max(0, Number(entry.mastery ?? entry.progress ?? 0) || 0),
+    }
+  }).filter(Boolean)
+}
+
 /* ═══════════════════ Hydration ═══════════════════ */
 
 function hydrateGameState(raw: Partial<GameState> = {}): GameState {
@@ -279,6 +352,11 @@ function hydrateGameState(raw: Partial<GameState> = {}): GameState {
   const rawNpcs = ensureArray<NpcState>(raw.npcs)
   const rawSect = raw.player?.sect
   const rawPF = raw.player?.playerFaction
+  const learnedTechniques = hydrateLearnedTechniques(raw.player, Number(raw.world?.day) || 0)
+  const heartSlot = hydrateHeartSlot(raw.player, learnedTechniques)
+  const skillLibrary = hydrateSectSkillLibrary(rawSect)
+  const teachings = hydrateTeachings(rawSect)
+  const rawEquipment = (raw.player?.equipment || null) as unknown as Record<string, unknown> | null
   const defaultSect = rawSect ? createInitialSect(rawSect.name || '') : null
   const defaultPF = rawPF ? createInitialPlayerFaction(rawPF.name || '') : null
   const rawStoryProgress = raw.story?.progress || {}
@@ -293,7 +371,16 @@ function hydrateGameState(raw: Partial<GameState> = {}): GameState {
     ...fresh, ...raw,
     player: {
       ...fresh.player, ...raw.player,
-      equipment: { ...fresh.player.equipment, ...(raw.player?.equipment || {}) },
+      equipment: {
+        weapon: typeof rawEquipment?.weapon === 'string'
+          ? rawEquipment.weapon as string
+          : fresh.player.equipment.weapon,
+        armor: typeof rawEquipment?.armor === 'string'
+          ? rawEquipment.armor as string
+          : fresh.player.equipment.armor,
+        heart: heartSlot,
+      },
+      learnedTechniques,
       assets: { ...fresh.player.assets, ...(raw.player?.assets || {}) },
       skills: { ...fresh.player.skills, ...(raw.player?.skills || {}) },
       factionStanding: { ...fresh.player.factionStanding, ...(raw.player?.factionStanding || {}) },
@@ -304,7 +391,12 @@ function hydrateGameState(raw: Partial<GameState> = {}): GameState {
       affiliationTaskDay: raw.player?.affiliationTaskDay || 0,
       tradeRun: raw.player?.tradeRun || null,
       travelPlan: raw.player?.travelPlan || null,
-      sect: rawSect ? { ...defaultSect!, ...rawSect, buildings: { ...defaultSect!.buildings, ...(rawSect.buildings || {}) } } : null,
+      sect: rawSect ? {
+        ...defaultSect!, ...rawSect,
+        buildings: { ...defaultSect!.buildings, ...(rawSect.buildings || {}) },
+        skillLibrary,
+        teachings,
+      } : null,
       playerFaction: rawPF ? {
         ...defaultPF!, ...rawPF,
         crew: { ...defaultPF!.crew, ...(rawPF.crew || {}) },
@@ -549,7 +641,8 @@ export const useGameStore = defineStore('game', () => {
     let maxQi = rank.qiMax, maxHp = rank.hpMax, maxStamina = rank.staminaMax
     let cultivationBonus = 0, breakthroughRate = 0.5
     let powerBonus = 0, insightBonus = 0, charismaBonus = 0
-    Object.values(p.equipment).forEach(itemId => {
+    ;(['weapon', 'armor'] as const).forEach((slot) => {
+      const itemId = p.equipment[slot]
       if (!itemId) return
       const item = getItem(itemId)
       if (!item) return
@@ -562,6 +655,20 @@ export const useGameStore = defineStore('game', () => {
       if (item.effect.insight) insightBonus += item.effect.insight
       if (item.effect.charisma) charismaBonus += item.effect.charisma
     })
+    const heartId = p.equipment.heart
+    const heartTechnique = heartId ? getTechnique(heartId) : null
+    const heartState = heartId ? p.learnedTechniques[heartId] : null
+    if (heartTechnique && heartState) {
+      const scale = getTechniqueStageMultiplier(heartState)
+      if (heartTechnique.effect.hp) maxHp += heartTechnique.effect.hp * scale
+      if (heartTechnique.effect.qi) maxQi += heartTechnique.effect.qi * scale
+      if (heartTechnique.effect.stamina) maxStamina += heartTechnique.effect.stamina * scale
+      if (heartTechnique.effect.cultivation) cultivationBonus += heartTechnique.effect.cultivation * scale
+      if (heartTechnique.effect.breakthroughRate) breakthroughRate += heartTechnique.effect.breakthroughRate * scale
+      if (heartTechnique.effect.power) powerBonus += heartTechnique.effect.power * scale
+      if (heartTechnique.effect.insight) insightBonus += heartTechnique.effect.insight * scale
+      if (heartTechnique.effect.charisma) charismaBonus += heartTechnique.effect.charisma * scale
+    }
     if (p.masterId) { cultivationBonus += 0.02; breakthroughRate += 0.015 }
     if (p.partnerId) { charismaBonus += 1; cultivationBonus += 0.01 }
     if (p.sect) {

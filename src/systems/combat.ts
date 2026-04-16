@@ -1,8 +1,9 @@
 import { getContext } from '@/core/context'
 import { bus } from '@/core/events'
-import { MONSTER_TEMPLATES, MONSTER_AFFIXES, REALM_TEMPLATES, ITEMS, LOCATION_MAP, ACTION_META, FACTION_MAP, getItem } from '@/config'
+import { MONSTER_TEMPLATES, MONSTER_AFFIXES, REALM_TEMPLATES, DISTRIBUTABLE_ITEMS, LOCATION_MAP, ACTION_META, FACTION_MAP, getItem, getTechnique } from '@/config'
 import { clamp, randomFloat, randomInt, sample, uid, round } from '@/utils'
 import { revivePlayer, checkRankGrowth } from './player'
+import { gainTechniqueMastery, getPreferredSpellId, getTechniqueEffectValue } from './techniques'
 import type { EnemyState } from '@/types/game'
 
 function getAffix(affixId: string) { return MONSTER_AFFIXES.find(a => a.id === affixId) || null }
@@ -15,8 +16,8 @@ function addCombatHistory(text: string, type = 'info') {
 }
 
 function chooseRewardItemByTypes(types: string[]) {
-  const pool = ITEMS.filter(item => types.includes(item.type))
-  return sample(pool.length ? pool : ITEMS)
+  const pool = DISTRIBUTABLE_ITEMS.filter(item => types.includes(item.type))
+  return sample(pool.length ? pool : DISTRIBUTABLE_ITEMS)
 }
 
 function buildEnemyFromTemplate(
@@ -43,7 +44,7 @@ function buildEnemyFromTemplate(
       breakthrough: options.boss ? 8 + (options.danger || 0) : 1 + (options.danger || 0) * 0.5,
     },
     rewardItemIds: options.rewardItemIds || [], lootTypes: template.lootTypes || [],
-    effects: { burn: 0, exposed: 0 },
+    effects: { burn: 0, exposed: 0, chill: 0 },
   }
   affixes.forEach(affix => {
     if (!affix) return
@@ -157,6 +158,7 @@ function applyOngoingEffects() {
   combat.playerEffects = combat.playerEffects || { burn: 0, guard: 0, chill: 0 }
   if (combat.playerEffects.burn > 0) { combat.playerEffects.burn -= 1; ctx.adjustResource('hp', -6, 'maxHp'); addCombatHistory('你身上的灼烧持续灼痛气血。', 'warn') }
   if (enemy.effects.burn > 0) { enemy.effects.burn -= 1; enemy.hp = Math.max(0, enemy.hp - 8); addCombatHistory(`${enemy.name}被火劲反噬，气息一乱。`, 'info') }
+  if (enemy.effects.exposed > 0) enemy.effects.exposed -= 1
 }
 
 function computePlayerDamage(kind: string) {
@@ -169,10 +171,34 @@ function computePlayerDamage(kind: string) {
 
 function enemyReceivesDamage(enemy: EnemyState, rawDamage: number) {
   if (Math.random() < enemy.dodge) { addCombatHistory(`${enemy.name}身形一晃，避开了你的攻势。`, 'warn'); return 0 }
-  const finalDamage = Math.max(5, round(rawDamage * (1 - enemy.defense), 1))
+  const effectiveDefense = Math.max(0, enemy.defense - enemy.effects.exposed * 0.06)
+  const finalDamage = Math.max(5, round(rawDamage * (1 - effectiveDefense), 1))
   enemy.hp = Math.max(0, enemy.hp - finalDamage)
   addCombatHistory(`你打中了${enemy.name}，造成${finalDamage}点伤害。`, 'loot')
   return finalDamage
+}
+
+function playerCastSpell(enemy: EnemyState, skillId: string) {
+  const ctx = getContext()
+  const technique = getTechnique(skillId)
+  if (!technique || technique.kind !== 'spell') return false
+  const qiCost = Math.max(1, getTechniqueEffectValue(skillId, 'qiCost') || technique.effect.qiCost || 0)
+  if (ctx.game.player.qi < qiCost) {
+    addCombatHistory(`你想施展${technique.name}，却发现真气不足。`, 'warn')
+    return false
+  }
+  ctx.adjustResource('qi', -qiCost, 'maxQi')
+  addCombatHistory(`你运起${technique.name}。`, 'info')
+  const damage = computePlayerDamage('attack') * Math.max(1, getTechniqueEffectValue(skillId, 'damageMultiplier') || 1)
+  enemyReceivesDamage(enemy, damage)
+  const burn = Math.round(getTechniqueEffectValue(skillId, 'burn'))
+  const expose = Math.round(getTechniqueEffectValue(skillId, 'expose'))
+  const chill = Math.round(getTechniqueEffectValue(skillId, 'chill'))
+  if (burn) enemy.effects.burn = Math.max(enemy.effects.burn, burn)
+  if (expose) enemy.effects.exposed = Math.max(enemy.effects.exposed, expose)
+  if (chill) enemy.effects.chill = Math.max(enemy.effects.chill, chill)
+  gainTechniqueMastery(skillId, 4 + qiCost * 0.25, '施术')
+  return true
 }
 
 function playerUseCombatItem() {
@@ -181,6 +207,9 @@ function playerUseCombatItem() {
   if (!itemId) { ctx.adjustResource('hp', 6, 'maxHp'); ctx.adjustResource('qi', 4, 'maxQi'); addCombatHistory('你强行调息，勉强稳住了伤势。', 'info'); return }
   const item = getItem(itemId)
   ctx.removeItemFromInventory(itemId, 1)
+  if (item?.effect.hp) ctx.adjustResource('hp', item.effect.hp, 'maxHp')
+  if (item?.effect.qi) ctx.adjustResource('qi', item.effect.qi, 'maxQi')
+  if (item?.effect.stamina) ctx.adjustResource('stamina', item.effect.stamina, 'maxStamina')
   addCombatHistory(`你在战斗中服用了${item!.name}。`, 'info')
 }
 
@@ -203,13 +232,15 @@ function enemyTurn(enemy: EnemyState) {
   const ctx = getContext()
   const effects = ctx.game.combat.playerEffects || { burn: 0, guard: 0, chill: 0 }
   const guardMultiplier = effects.guard > 0 ? 0.58 : 1
-  const damage = Math.max(4, round(enemy.power * randomFloat(0.84, 1.12) * guardMultiplier, 1))
+  const chillMultiplier = enemy.effects.chill > 0 ? Math.max(0.72, 1 - enemy.effects.chill * 0.08) : 1
+  const damage = Math.max(4, round(enemy.power * randomFloat(0.84, 1.12) * guardMultiplier * chillMultiplier, 1))
   ctx.adjustResource('hp', -damage, 'maxHp')
   addCombatHistory(`${enemy.name}反击，令你损失${damage}点气血。`, 'warn')
   if (enemy.qiBurn) ctx.adjustResource('qi', -enemy.qiBurn, 'maxQi')
   if (enemy.burnOnHit) effects.burn = Math.max(effects.burn, enemy.burnOnHit)
   if (enemy.chillOnHit) { effects.chill = Math.max(effects.chill, enemy.chillOnHit); ctx.adjustResource('stamina', -enemy.chillOnHit, 'maxStamina') }
   effects.guard = 0
+  if (enemy.effects.chill > 0) enemy.effects.chill -= 1
   ctx.game.combat.playerEffects = effects
 }
 
@@ -247,7 +278,7 @@ function resolveDefeat(enemy: EnemyState) {
   revivePlayer()
 }
 
-export function processBattleRound(action = 'attack') {
+export function processBattleRound(action = 'attack', skillId: string | null = null) {
   const ctx = getContext()
   const enemy = ctx.game.combat.currentEnemy
   if (!enemy) return
@@ -260,11 +291,15 @@ export function processBattleRound(action = 'attack') {
     addCombatHistory('你稳住身形，准备硬接下一击。', 'info')
   } else if (action === 'item') { playerUseCombatItem() }
   else {
-    const useSkill = action === 'skill' && ctx.game.player.qi >= 10
-    if (useSkill) ctx.adjustResource('qi', -10, 'maxQi')
-    const damage = computePlayerDamage(useSkill ? 'skill' : 'attack')
-    enemyReceivesDamage(enemy, damage)
-    if (useSkill && Math.random() < 0.22) enemy.effects.burn = Math.max(enemy.effects.burn, 2)
+    const preferredSkillId = action === 'skill' ? (skillId || getPreferredSpellId()) : null
+    const casted = preferredSkillId ? playerCastSpell(enemy, preferredSkillId) : false
+    if (action === 'skill' && !casted) {
+      addCombatHistory('你会的术法眼下都施展不开，只能改以普攻应对。', 'warn')
+    }
+    if (!casted) {
+      const damage = computePlayerDamage('attack')
+      enemyReceivesDamage(enemy, damage)
+    }
   }
   if (enemy.hp <= 0) { resolveVictory(enemy); return }
   enemyTurn(enemy)
@@ -274,7 +309,8 @@ export function processBattleRound(action = 'attack') {
 export function autoCombatTick(): boolean {
   const ctx = getContext()
   if (!ctx.game.combat.currentEnemy) return false
-  processBattleRound(ctx.game.player.qi >= 12 ? 'skill' : 'attack')
+  const preferredSkillId = getPreferredSpellId(ctx.game.player.qi)
+  processBattleRound(preferredSkillId ? 'skill' : 'attack', preferredSkillId)
   return true
 }
 

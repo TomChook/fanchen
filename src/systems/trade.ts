@@ -1,6 +1,6 @@
 import { getContext } from '@/core/context'
 import { bus } from '@/core/events'
-import { LOCATIONS, LOCATION_MAP, ITEMS, getItem } from '@/config'
+import { LOCATIONS, LOCATION_MAP, getItem } from '@/config'
 import { randomFloat, sample, uid, findRoute } from '@/utils'
 import { travelTo } from './world'
 

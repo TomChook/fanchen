@@ -1,6 +1,15 @@
 /* ─── Inventory & Equipment ─── */
 export interface InventoryEntry { itemId: string; quantity: number }
-export interface Equipment { weapon: string | null; armor: string | null; manual: string | null }
+export interface Equipment { weapon: string | null; armor: string | null; heart: string | null }
+export type TechniqueKind = 'heart' | 'spell'
+
+export interface LearnedTechniqueState {
+  skillId: string
+  stage: number
+  mastery: number
+  scribeCharges: number
+  learnedDay: number
+}
 
 /* ─── Relation ─── */
 export interface RelationState {
@@ -23,6 +32,10 @@ export interface PlayerSkills {
   farming: number; crafting: number; trading: number
 }
 
+export interface TechniqueCollection {
+  [skillId: string]: LearnedTechniqueState
+}
+
 export interface PlayerStats {
   enemiesDefeated: number; bossKills: number; tradesCompleted: number
   tradeRoutesCompleted: number; questsFinished: number; affiliationTasksCompleted: number
@@ -33,13 +46,13 @@ export interface PlayerStats {
 
 /* ─── Sect ─── */
 export interface SectBuildings { hall: number; dojo: number; library: number; market: number }
-export interface Teaching { npcId: string; manualId: string; progress: number }
+export interface Teaching { npcId: string; skillId: string; stage: number; mastery: number }
 export interface SectMission { id: string; ownerType: string; kind: string; [key: string]: unknown }
 
 export interface SectState {
   id: string; name: string; foundedDay: number; prestige: number; treasury: number
   food: number; level: number; disciples: string[]; elders: string[]
-  buildings: SectBuildings; manualLibrary: string[]; teachings: Teaching[]
+  buildings: SectBuildings; skillLibrary: string[]; teachings: Teaching[]
   missions: SectMission[]; missionDay: number; outerDisciples: number; eventCooldown: number
 }
 
@@ -80,6 +93,7 @@ export interface PlayerState {
   cultivationBonus: number; breakthroughRate: number
   locationId: string; mode: string; action: string
   inventory: InventoryEntry[]; equipment: Equipment
+  learnedTechniques: TechniqueCollection
   affiliationId: string | null; affiliationRank: number
   factionStanding: Record<string, number>; regionStanding: Record<string, number>
   factionCooldowns: Record<string, number>
@@ -112,7 +126,7 @@ export interface NpcState {
 }
 
 /* ─── Combat ─── */
-export interface EnemyEffects { burn: number; exposed: number }
+export interface EnemyEffects { burn: number; exposed: number; chill: number }
 export interface PlayerEffects { burn: number; guard: number; chill: number }
 export interface CombatHistoryEntry { text: string; type: string }
 export interface CombatLastResult { outcome: string; enemy: string; boss: boolean }

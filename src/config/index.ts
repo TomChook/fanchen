@@ -15,8 +15,18 @@ export {
 } from './constants'
 export type { RankData, ModeOption, ActionMeta } from './constants'
 
-export { ITEMS, ITEM_MAP, getItem } from './items'
+export { ITEMS, ITEM_MAP, DISTRIBUTABLE_ITEMS, getItem, getManualItemBySkillId } from './items'
 export type { ItemData } from './items'
+
+export {
+	TECHNIQUES,
+	TECHNIQUE_MAP,
+	TECHNIQUE_DISCOVERY_RECIPES,
+	getTechnique,
+	getTechniqueByItemId,
+	getTechniqueBookItem,
+} from './techniques'
+export type { TechniqueData, TechniqueDiscoveryRecipe } from './techniques'
 
 export { LOCATIONS, LOCATION_MAP, getLocation } from './world'
 export type { LocationData } from './world'

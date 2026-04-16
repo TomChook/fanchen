@@ -1,11 +1,12 @@
 import { getContext } from '@/core/context'
 import { bus } from '@/core/events'
 import {
-  RANKS, MODE_OPTIONS, ACTION_META, ITEMS, PROPERTY_DEFS, SECT_BUILDINGS,
+  RANKS, MODE_OPTIONS, ACTION_META, PROPERTY_DEFS,
   LOCATION_MAP, getItem,
 } from '@/config'
 import { clamp, round, sample, uid } from '@/utils'
 import type { AssetState } from '@/types/game'
+import { gainHeartMasteryFromAction, getTechniqueLearnIssues, learnTechnique } from './techniques'
 
 const ASSET_EFFECT_KIND_MAP: Record<string, string> = { assetFarm: 'farm', assetWorkshop: 'workshop', assetShop: 'shop' }
 const ASSET_KIND_LABELS: Record<string, string> = { farm: '田产', workshop: '工坊', shop: '铺面' }
@@ -56,15 +57,6 @@ export function setMode(modeId: string) {
   ctx.appendLog(`挂机模式切换为"${MODE_OPTIONS.find(m => m.id === modeId)?.label || modeId}"。`, 'info')
 }
 
-export function maybeLearnFromManual() {
-  const ctx = getContext()
-  const manualId = ctx.game.player.equipment.manual
-  if (!manualId) return
-  const manual = getItem(manualId)
-  if (!manual) return
-  if (Math.random() < 0.08) ctx.game.player.insight += (manual.effect.insight || 2) * 0.05
-}
-
 export function checkRankGrowth() {
   const ctx = getContext()
   const p = ctx.game.player
@@ -113,10 +105,12 @@ export function consumeItem(itemId: string) {
     p.equipment.armor = item.id
     ctx.appendLog(`你换上了${item.name}。`, 'info')
   } else if (item.type === 'manual') {
+    const skillId = item.manualSkillId
+    if (!skillId) { ctx.appendLog('这册秘籍暂时无法识别对应功法。', 'warn'); return }
+    const issues = getTechniqueLearnIssues(skillId)
+    if (issues.length) { ctx.appendLog(issues[0], 'warn'); return }
     if (!ctx.removeItemFromInventory(itemId, 1)) return
-    if (p.equipment.manual) ctx.addItemToInventory(p.equipment.manual, 1)
-    p.equipment.manual = item.id
-    ctx.appendLog(`你开始参悟${item.name}。`, 'info')
+    learnTechnique(skillId, { sourceText: item.name })
   } else {
     const assetClaim = claimAssetFromItem(item)
     if (assetClaim.handled) { ctx.appendLog(assetClaim.message!, assetClaim.success ? 'loot' : 'warn'); ctx.updateDerivedStats(); return }
@@ -139,10 +133,12 @@ export function stashManualToSect(itemId: string) {
   const p = ctx.game.player
   if (!p.sect) { ctx.appendLog('你尚未建立宗门，无法入藏功法。', 'warn'); return }
   const item = getItem(itemId)
-  if (!item || item.type !== 'manual') return
+  const skillId = item?.manualSkillId
+  if (!item || item.type !== 'manual' || !skillId) return
+  if (p.sect.skillLibrary.includes(skillId)) { ctx.appendLog('宗门藏经阁中已有这门功法。', 'warn'); return }
   if (!ctx.removeItemFromInventory(itemId, 1)) return
-  p.sect.manualLibrary.push(itemId)
-  ctx.appendLog(`${item.name}已收入宗门藏经阁。`, 'info')
+  p.sect.skillLibrary.push(skillId)
+  ctx.appendLog(`${item.name}已收入宗门藏经阁，可供后续传功。`, 'info')
 }
 
 export function sellItem(itemId: string) {
@@ -191,6 +187,6 @@ export function applyPassiveAction(actionKey: string) {
   if (action.reward.market) p.stats.tradesCompleted += 1
   if (actionKey === 'meditate') { p.stats.meditationSessions += 1; ctx.adjustResource('hp', 1.5, 'maxHp') }
   if (actionKey === 'train') p.insight += 0.05
-  maybeLearnFromManual()
+  gainHeartMasteryFromAction(actionKey)
   checkRankGrowth()
 }

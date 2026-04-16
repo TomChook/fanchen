@@ -2,7 +2,7 @@ import { getContext } from '@/core/context'
 import { bus } from '@/core/events'
 import type { PlayerState, TravelPlanState } from '@/types/game'
 import {
-  LOCATION_MAP, LOCATIONS, TRAVEL_EVENT_TEMPLATES, ITEMS, TIME_LABELS,
+  LOCATION_MAP, LOCATIONS, TRAVEL_EVENT_TEMPLATES, DISTRIBUTABLE_ITEMS, TIME_LABELS,
   ACTION_META, REALM_TEMPLATES, WORLD_EVENT_TEMPLATES,
 } from '@/config'
 import { sample, randomInt, fillTemplate, findRoute as resolveRoute } from '@/utils'
@@ -28,9 +28,9 @@ function triggerTravelEvent(location: ReturnType<typeof LOCATION_MAP.get>) {
   }
   if (event.kind === 'item') {
     const pool = location.marketBias
-      ? ITEMS.filter(i => i.tier <= (location.marketTier || 0) + 1 && (i.type === location.marketBias || Math.random() < 0.25))
-      : ITEMS.filter(i => i.tier <= (location.marketTier || 0) + 1)
-    const item = sample(pool.length ? pool : ITEMS)
+      ? DISTRIBUTABLE_ITEMS.filter(i => i.tier <= (location.marketTier || 0) + 1 && (i.type === location.marketBias || Math.random() < 0.25))
+      : DISTRIBUTABLE_ITEMS.filter(i => i.tier <= (location.marketTier || 0) + 1)
+    const item = sample(pool.length ? pool : DISTRIBUTABLE_ITEMS)
     ctx.addItemToInventory(item.id, 1)
     ctx.appendLog(fillTemplate(event.text, { terrain: location.terrain, item: item.name }), 'loot')
     return
@@ -443,8 +443,8 @@ function processActionKey(actionKey: string | null) {
     if (maybeTriggerFactionPursuit(actionKey as 'hunt' | 'quest')) return
     const started = maybeStartEncounter(actionKey)
     if (!started) {
-      const pool = ITEMS.filter(i => i.tier <= (ctx.getCurrentLocation().marketTier || 0) + 1 && (i.type === ctx.getCurrentLocation().marketBias || Math.random() < 0.2))
-      const item = sample(pool.length ? pool : ITEMS)
+      const pool = DISTRIBUTABLE_ITEMS.filter(i => i.tier <= (ctx.getCurrentLocation().marketTier || 0) + 1 && (i.type === ctx.getCurrentLocation().marketBias || Math.random() < 0.2))
+      const item = sample(pool.length ? pool : DISTRIBUTABLE_ITEMS)
       if (Math.random() < 0.42) {
         ctx.addItemToInventory(item.id, 1)
         ctx.appendLog(`你在${ctx.getCurrentLocation().name}一带收获了${item.name}。`, 'loot')
